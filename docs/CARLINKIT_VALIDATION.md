@@ -16,7 +16,7 @@ physical display output or correct operation of AndroidKeyStore storage/TLS on t
 | Notification access visible and grantable | To verify |
 | Google Maps version and language | To record |
 | ABRP version and language | To record |
-| Device hosting the hotspot | To identify |
+| Device hosting the hotspot | Vehicle, using TetherFuseNet; Tbox connected as Wi-Fi client (user reported) |
 | Usable local network, port 47832 reachable | To verify |
 | SIM: Maps/ABRP mobile data usable during local WSS | To verify |
 | Power saving / OEM restrictions | To record |
@@ -32,6 +32,11 @@ reproducing the relevant fields, together with the source app's version and lang
 | --- | --- | --- |
 | Satellite receiver disabled | Local DashCast operation unchanged | Pending |
 | Import a valid profile | Authenticated local connection | Pending |
+| Pair with DashCast using the code | Hotspot gateway detected; profile saved without a file; pinned WSS connects | Pending |
+| Wrong code, then retry | Existing profile unchanged; correct code succeeds while window remains open | Pending |
+| Switch DashCast → Tbox on the same vehicle screen | Six-digit code stays valid until its original two-minute deadline | Pending |
+| Cancel pairing / expire code / revoke | Temporary endpoint closes; no late save or accepted old code | Pending |
+| Gateway unavailable | Manual vehicle address shown in DashCast allows pairing on the same LAN | Pending |
 | Revoked profile / different certificate | No guidance accepted; pairing required again | Pending |
 | Socket connected, no navigation | Inactive source, no old turn | Pending |
 | Maps with explicit guidance | Correct maneuver and distance on the HUD/cluster | Pending |

@@ -88,3 +88,26 @@ Application 0.1.1-dev (version code 2) uses the same Android Debug signing certi
 so the test APK can update the earlier debug installation. APK SHA-256:
 `4061548c38db27de05d40131b5dfae64fa73731af5493de237f697667ed5590f`.
 This remains a guidance-only test build; the physical validation checklist is still pending.
+
+## Six-digit code pairing — October 9, 2026
+
+Application 0.2.0-dev (version code 3) adds pairing without transferring a file. Display a six-digit
+code in DashCast, switch to the Tbox display, and enter it in **Pair with DashCast**. The car keeps
+the pairing window available for two minutes while its settings screen is in the background.
+Switching back to check the code preserves unfinished input only in the existing companion screen;
+it is excluded from saved state, autofill, screenshots and keyboard learning.
+
+The local exchange uses J-PAKE with mutual key confirmation before transferring the encrypted
+profile. Normal guidance still uses the existing pinned WSS connection and protected token store.
+
+- Companion: 79 unit tests passed, including wrong-code rejection, replay rejection, bounded
+  framing, cancellation, gateway selection without Internet and pairing-screen lifecycle.
+- Receiver: 919 unit tests passed, release lint and debug/release assembly succeeded. Both
+  companion lint variants report no issues. The receiver release APK passed its release asset
+  scanner, including signature, package/version and non-debuggable checks.
+- Android SDK tools verified the companion APK version and its existing Android Debug signature.
+  APK SHA-256: `4f413e49d5c9c25df44635a46d1e3aba0002c3a528ff13c155f66fbabb312082`.
+
+Physical validation remains pending on the Carlinkit Tbox Ultra 1 running Android 15, connected to
+the vehicle's TetherFuseNet hotspot. These automated checks do not establish successful pairing,
+SIM routing, guidance rendering or recovery on that hardware. Video remains unimplemented.

@@ -17,9 +17,13 @@ unsupported. The second milestone will add video capture.
 2. Connect the box and DashCast to the same local network. Check that the private addresses shown
    in the DashCast profile are reachable from the box. The satellite socket uses a Wi-Fi/Ethernet
    network; the process and other apps keep their default network.
-3. In DashCast, enable the satellite receiver, pair a device, and obtain the JSON profile.
-   In Satellite, select **Import pairing profile**. The file contains a secret: delete it from its transfer
-   location after importing it. Internal storage is encrypted and excluded from backups.
+3. In a DashCast version supporting code pairing, enable the satellite receiver and select
+   **Pair a device**. Switch to the Tbox interface, select **Pair with DashCast** and enter
+   the displayed temporary six-digit code. Satellite tries the Wi-Fi gateway
+   and saves the profile automatically. If needed, select **Advanced: enter the car IP address** and use
+   an address displayed by DashCast. The pairing window lasts two minutes; no file or camera is needed.
+   **Advanced: import a pairing file** remains available for older receivers. Internal storage
+   is encrypted and excluded from backups; remove transferred profile files after importing them.
 4. Explicitly grant notification access in Android and select **Google Maps** or **ABRP**.
    Reading notifications and displaying notifications require separate permissions.
    Depending on Android's installation rules, access may require manually allowing restricted
@@ -77,6 +81,9 @@ The [v1 contract](protocol/v1/PROTOCOL_V1.md) and its fixtures are copied unchan
 `Kiroha/byd-dashcast` at commit `48e8f30344d513967e7d065de1ef369c92a89b23`.
 Hashes are in [upstream.json](protocol/v1/upstream.json). Any change must pass both apps'
 compatibility tests. The app version evolves independently.
+The optional [local pairing transfer](protocol/pairing/v1/PAIRING_V1.md) has separate fixtures and
+a separate receiver pin. It transfers the existing profile using a temporary code and authenticated
+encryption; the normal WSS certificate pin remains mandatory.
 Parser provenance is documented in [PARSER_PROVENANCE.md](docs/PARSER_PROVENANCE.md).
 
 The satellite contains no OEM output, CAN dependency, ADB, vehicle API, or platform key.

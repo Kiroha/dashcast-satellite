@@ -27,6 +27,8 @@ import io.github.kiroha.dashcast.satellite.navigation.NotificationAccess
 import io.github.kiroha.dashcast.satellite.navigation.SourceStatus
 import io.github.kiroha.dashcast.satellite.pairing.PairingProfile
 import io.github.kiroha.dashcast.satellite.pairing.PairingStore
+import io.github.kiroha.dashcast.satellite.pairing.CodePairingActivity
+import io.github.kiroha.dashcast.satellite.pairing.PairingOperation
 import io.github.kiroha.dashcast.satellite.transport.TransportState
 
 class MainActivity : Activity() {
@@ -34,6 +36,7 @@ class MainActivity : Activity() {
     private lateinit var settings: SatelliteSettings
     private var paired = false
     private var lastImportRevision = -1L
+    private var importOperation: PairingOperation.Ticket? = null
     private val refresh = object : Runnable {
         override fun run() {
             renderStatus()
@@ -57,8 +60,13 @@ class MainActivity : Activity() {
             }
             insets
         }
+        findViewById<Button>(R.id.code_pairing).setOnClickListener {
+            if (PairingOperation.busy) return@setOnClickListener
+            stopTransmission()
+            startActivity(Intent(this, CodePairingActivity::class.java))
+        }
         findViewById<Button>(R.id.import_pairing).setOnClickListener {
-            if (importing) return@setOnClickListener
+            if (PairingOperation.busy) return@setOnClickListener
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "*/*"
@@ -68,9 +76,8 @@ class MainActivity : Activity() {
                 .onFailure { toast(R.string.settings_unavailable) }
         }
         findViewById<Button>(R.id.forget_pairing).setOnClickListener {
-            if (importing) return@setOnClickListener
             stopTransmission()
-            runCatching { PairingStore(this).clear() }
+            runCatching { PairingOperation.forget { PairingStore(this).clear() } }
                 .onFailure { toast(R.string.import_failed) }
             refreshPairing()
             renderStatus()
@@ -113,14 +120,26 @@ class MainActivity : Activity() {
         super.onPause()
     }
 
+    override fun onDestroy() {
+        importOperation?.let(PairingOperation::cancel)
+        importOperation = null
+        super.onDestroy()
+    }
+
+    override fun onStop() {
+        importOperation?.let(PairingOperation::cancel)
+        importOperation = null
+        super.onStop()
+    }
+
     @Deprecated("Platform callback used for the minimal framework-only UI")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != IMPORT_PROFILE || resultCode != RESULT_OK) return
-        if (importing) return
         val uri = data?.data ?: return
+        val ticket = PairingOperation.begin() ?: return
+        importOperation = ticket
         stopTransmission()
-        importing = true
         renderStatus()
         Thread({
             val success = runCatching {
@@ -135,12 +154,13 @@ class MainActivity : Activity() {
                     require(count in 1..16_384)
                     String(bytes, 0, count, Charsets.UTF_8)
                 } ?: error("unreadable_profile")
-                PairingStore(applicationContext).save(PairingProfile.parse(json))
-            }.isSuccess
+                val profile = PairingProfile.parse(json)
+                PairingOperation.complete(ticket) { PairingStore(applicationContext).save(profile) }
+            }.getOrDefault(false)
+            PairingOperation.cancel(ticket)
             handler.post {
-                importing = false
-                importRevision++
-                if (!isFinishing && !isDestroyed) {
+                if (importOperation === ticket && !isFinishing && !isDestroyed) {
+                    importOperation = null
                     refreshPairing()
                     renderStatus()
                     toast(if (success) R.string.import_ok else R.string.import_failed)
@@ -156,7 +176,7 @@ class MainActivity : Activity() {
     }
 
     private fun startTransmission() {
-        if (importing) return
+        if (PairingOperation.busy) return
         refreshPairing()
         if (!paired) { toast(R.string.need_profile); return }
         settings.enabled = true
@@ -186,9 +206,9 @@ class MainActivity : Activity() {
 
     private fun renderStatus() {
         // An import can finish after Activity recreation; refresh the newly visible instance too.
-        if (lastImportRevision != importRevision) {
+        if (lastImportRevision != PairingOperation.revision) {
             refreshPairing()
-            lastImportRevision = importRevision
+            lastImportRevision = PairingOperation.revision
         }
         val control = SatelliteState.transport
         val connection = when (control.state) {
@@ -215,9 +235,11 @@ class MainActivity : Activity() {
         findViewById<TextView>(R.id.source_state).text = getString(R.string.source_status, getString(source))
         findViewById<TextView>(R.id.receiver_state).text = getString(R.string.receiver_status,
             getString(if (control.remoteGuidance) R.string.receiver_enabled else R.string.receiver_disabled))
-        findViewById<Button>(R.id.import_pairing).isEnabled = !importing
-        findViewById<Button>(R.id.forget_pairing).isEnabled = paired && !importing
-        findViewById<Button>(R.id.start).isEnabled = paired && !importing &&
+        val busy = PairingOperation.busy
+        findViewById<Button>(R.id.code_pairing).isEnabled = !busy
+        findViewById<Button>(R.id.import_pairing).isEnabled = !busy
+        findViewById<Button>(R.id.forget_pairing).isEnabled = paired && !busy
+        findViewById<Button>(R.id.start).isEnabled = paired && !busy &&
             (!settings.enabled || control.state == TransportState.STOPPED)
         findViewById<Button>(R.id.stop).isEnabled = settings.enabled
     }
@@ -225,8 +247,6 @@ class MainActivity : Activity() {
     private fun toast(message: Int) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
 
     companion object {
-        @Volatile private var importing = false
-        private var importRevision = 0L
         private const val IMPORT_PROFILE = 1
         private const val NOTIFICATION_PERMISSION = 2
     }

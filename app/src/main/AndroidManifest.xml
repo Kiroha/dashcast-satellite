@@ -29,6 +29,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".pairing.CodePairingActivity" android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
         <service android:name=".SatelliteService" android:exported="false"
             android:foregroundServiceType="connectedDevice" />
         <service android:name=".navigation.NavigationNotificationListenerService"

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/code_pairing_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:fillViewport="true" android:importantForAutofill="noExcludeDescendants" android:saveEnabled="false">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="24dp">
+        <TextView style="@style/AppTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/pair_with_dashcast" android:textSize="28sp" android:textColor="#58D6BE" />
+        <TextView style="@style/Body" android:text="@string/pairing_code_help" />
+        <TextView style="@style/Body" android:text="@string/pairing_code_label" />
+        <EditText android:id="@+id/pairing_code" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="56dp" android:maxLength="16" android:singleLine="true"
+            android:inputType="number" android:digits="0123456789- "
+            android:imeOptions="flagNoPersonalizedLearning|flagNoExtractUi|actionDone"
+            android:importantForAutofill="no" android:saveEnabled="false"
+            android:hint="@string/pairing_code_hint" android:fontFamily="monospace" />
+        <CheckBox android:id="@+id/manual_address_toggle" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:text="@string/pairing_manual_address" android:saveEnabled="false" />
+        <LinearLayout android:id="@+id/manual_address_fields" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+            <TextView style="@style/Body" android:text="@string/pairing_address_label" />
+            <EditText android:id="@+id/manual_address" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:maxLength="45" android:singleLine="true" android:saveEnabled="false"
+                android:inputType="textUri|textNoSuggestions" android:hint="@string/pairing_address_hint"
+                android:imeOptions="flagNoPersonalizedLearning|flagNoExtractUi|actionDone" android:importantForAutofill="no" />
+        </LinearLayout>
+        <TextView android:id="@+id/code_pairing_status" style="@style/Body" android:accessibilityLiveRegion="polite" />
+        <Button android:id="@+id/code_pair" style="@style/Action" android:text="@string/pairing_code_submit" />
+        <Button android:id="@+id/code_cancel" style="@style/Action" android:text="@string/pairing_code_cancel" />
+    </LinearLayout>
+</ScrollView>

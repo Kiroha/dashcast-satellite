@@ -11,6 +11,7 @@
         <TextView style="@style/SectionTitle" android:text="@string/pairing_section" />
         <TextView style="@style/Body" android:text="@string/pairing_help" />
         <TextView android:id="@+id/pairing_state" style="@style/Body" />
+        <Button android:id="@+id/code_pairing" style="@style/Action" android:text="@string/pair_with_dashcast" />
         <Button android:id="@+id/import_pairing" style="@style/Action" android:text="@string/import_pairing" />
         <Button android:id="@+id/forget_pairing" style="@style/Action" android:text="@string/forget_pairing" />
         <TextView style="@style/SectionTitle" android:text="@string/source_section" />

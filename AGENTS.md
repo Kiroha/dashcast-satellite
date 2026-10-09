@@ -3,6 +3,9 @@
 This is an independent Android companion. Keep OEM outputs, CAN, ADB, vehicle diagnostics and
 platform signing in DashCast. Never add vehicle keys here. One app; no shared-code repository yet.
 
+Use English for application UI, notifications, documentation, and code comments. Preserve
+multilingual navigation parsing patterns and test fixtures: they are source data, not UI text.
+
 The protocol and fixtures under protocol/v1 are pinned to a reviewed receiver commit in
 upstream.json. Verify hashes with tools/verify_protocol.py and run fixture tests when editing
 transport or navigation. Preserve real source age; a timer alone cannot refresh cached guidance.

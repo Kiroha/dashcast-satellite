@@ -1,95 +1,95 @@
 # DashCast Satellite
 
-Dépôt : [Kiroha/dashcast-satellite](https://github.com/Kiroha/dashcast-satellite).
+Repository: [Kiroha/dashcast-satellite](https://github.com/Kiroha/dashcast-satellite).
 
-Application Android indépendante qui observe un guidage sur la box et le transmet au récepteur
-DashCast via le réseau local. Premier appareil à valider : **Carlinkit Tbox Ultra 1, Android 15**
-(informations fournies par l’utilisateur ; aucun essai physique effectué dans cette session).
+An independent Android app that observes navigation guidance on the box and sends it to the
+DashCast receiver over the local network. First device to validate: **Carlinkit Tbox Ultra 1, Android 15**
+(reported by the user; no physical testing performed in this session).
 
-Ce dépôt contient le socle du premier jalon. Il ne revendique pas encore de compatibilité véhicule
-validée. Maps et ABRP peuvent afficher des manœuvres uniquement dans une image : elles restent
-alors explicitement non prises en charge. Le deuxième jalon ajoutera la capture vidéo.
+This repository contains the foundation for the first milestone. Vehicle compatibility has not
+yet been validated. Maps and ABRP may display maneuvers only as images; these remain explicitly
+unsupported. The second milestone will add video capture.
 
-## Premier parcours
+## Getting started
 
-1. Installer l’APK debug sur la box. Il utilise l’identité
-   `io.github.kiroha.dashcast.satellite.debug` et une signature Android ordinaire.
-2. Relier la box et DashCast au même réseau local. Vérifier que les adresses privées affichées
-   dans le profil DashCast sont joignables depuis la box. Le socket satellite utilise un réseau
-   Wi-Fi/Ethernet ; le processus et les autres applications conservent leur réseau par défaut.
-3. Dans DashCast : activer le récepteur satellite, appairer un appareil et récupérer le profil JSON.
-   Dans Satellite : **Importer le profil**. Le fichier contient un secret : le supprimer de son
-   emplacement d’échange une fois importé ; le stockage interne est chiffré et exclu des sauvegardes.
-4. Autoriser explicitement l’accès aux notifications dans Android et sélectionner **Google Maps**
-   ou **ABRP**. L’autorisation de lecture et celle d’affichage des notifications sont distinctes.
-   Selon les règles d’installation d’Android, l’accès peut nécessiter une autorisation manuelle
-   des paramètres restreints dans la fiche de l’application. Aucun contournement automatique.
-5. Dans DashCast, choisir **Utiliser le guidage satellite** et les sorties HUD/cluster souhaitées.
-   Dans Satellite, appuyer sur **Démarrer**, puis lancer une navigation réelle dans la source choisie.
-6. Contrôler les états **Connexion** et **Source**, puis l’affichage physique. Une connexion établie
-   ne prouve pas la présence d’une manœuvre utilisable. Le statut du guidage récepteur reflète le
-   dernier handshake ou refus ; après une modification de ce réglage, reconnecter pour le confirmer.
-7. Arrêter la navigation, retirer l’autorisation et couper/rétablir le Wi-Fi : les anciennes
-   indications doivent disparaître, puis un nouveau guidage valide doit reprendre.
+1. Install the debug APK on the box. It uses the application ID
+   `io.github.kiroha.dashcast.satellite.debug` and a standard Android signing key.
+2. Connect the box and DashCast to the same local network. Check that the private addresses shown
+   in the DashCast profile are reachable from the box. The satellite socket uses a Wi-Fi/Ethernet
+   network; the process and other apps keep their default network.
+3. In DashCast, enable the satellite receiver, pair a device, and obtain the JSON profile.
+   In Satellite, select **Import pairing profile**. The file contains a secret: delete it from its transfer
+   location after importing it. Internal storage is encrypted and excluded from backups.
+4. Explicitly grant notification access in Android and select **Google Maps** or **ABRP**.
+   Reading notifications and displaying notifications require separate permissions.
+   Depending on Android's installation rules, access may require manually allowing restricted
+   settings on the app's settings page. There is no automatic bypass.
+5. In DashCast, select **Use satellite guidance** and the desired HUD/cluster outputs.
+   In Satellite, tap **Start**, then start actual navigation in the selected source app.
+6. Check the **Connection** and **Source** states, then the physical display. An established
+   connection does not prove that a usable maneuver is available. The receiver guidance status
+   reflects the last handshake or rejection; reconnect after changing this setting to confirm it.
+7. Stop navigation, revoke permission, and disconnect/reconnect Wi-Fi: previous guidance must
+   disappear, then new valid guidance must resume.
 
-La reprise après redémarrage est un choix explicite et concerne uniquement le guidage. Android ou
-le firmware de la box peut restreindre les services ; le bouton Démarrer permet une reprise manuelle.
-Un hotspot hébergé par la box n’expose pas nécessairement un `Network` LAN utilisable aux applications :
-valider la topologie réelle dans la [fiche Carlinkit](docs/CARLINKIT_VALIDATION.md).
+Resuming after reboot is an explicit choice and applies only to guidance. Android or the box's
+firmware may restrict services; the Start button allows manual recovery.
+A hotspot hosted by the box may not expose a usable LAN `Network` to apps:
+validate the actual topology in the [Carlinkit checklist](docs/CARLINKIT_VALIDATION.md).
 
-## Compilation et vérifications
+## Build and checks
 
-JDK 21 pour Gradle, compilation Java/Kotlin 17, SDK Android 36, minimum API 26, cible API 36.
-Les versions du wrapper, d’AGP et des dépendances sont fixées. Définir `ANDROID_HOME` ou un
-`local.properties` privé contenant `sdk.dir=…`, puis :
+JDK 21 for Gradle, Java/Kotlin 17 compilation, Android SDK 36, minimum API 26, target API 36.
+Wrapper, AGP, and dependency versions are pinned. Set `ANDROID_HOME` or create a private
+`local.properties` containing `sdk.dir=…`, then run:
 
 ```sh
 python3 tools/verify_protocol.py
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ```
 
-APK : `app/build/outputs/apk/debug/app-debug.apk`.
-La CI exécute ces mêmes contrôles, y compris les fixtures protocolaires du récepteur.
-Les résultats de la première vérification locale sont dans [VALIDATION_RESULTS.md](docs/VALIDATION_RESULTS.md).
+APK: `app/build/outputs/apk/debug/app-debug.apk`.
+CI runs the same checks, including the receiver's protocol fixtures.
+The initial local verification results are in [VALIDATION_RESULTS.md](docs/VALIDATION_RESULTS.md).
 
-La release est indépendante de DashCast. Le workflow manuel `Signed satellite build` utilise
-l’environnement `satellite-release` et les secrets propres à cette application :
+Releases are independent of DashCast. The manual `Signed satellite build` workflow uses the
+`satellite-release` environment and secrets dedicated to this app:
 `SATELLITE_KEYSTORE_BASE64`, `SATELLITE_STORE_PASSWORD`, `SATELLITE_KEY_ALIAS`, `SATELLITE_KEY_PASSWORD`.
-Ne jamais utiliser la clé plateforme du véhicule. Localement, remplacer le secret base64 par
-`SATELLITE_KEYSTORE`, chemin absolu vers cette clé dédiée, puis lancer `:app:assembleRelease`.
-Sans les quatre paramètres, la tâche de packaging release échoue explicitement. Aucun secret de
-release n’a été provisionné et aucune release n’a été publiée par ce socle.
+Never use the vehicle's platform key. For local builds, replace the base64 secret with
+`SATELLITE_KEYSTORE`, the absolute path to this dedicated keystore, then run `:app:assembleRelease`.
+Without all four settings, release packaging fails explicitly. No release secrets have been
+provisioned and no release has been published as part of this foundation.
 
-## Organisation et contrat
+## Structure and contract
 
-Un module `app`, avec les packages `pairing`, `transport`, `navigation`, `capture` :
+One `app` module, with the `pairing`, `transport`, `navigation`, and `capture` packages:
 
-- `pairing` : validation stricte du profil, empreinte SHA-256 du certificat DER, AES-GCM et AndroidKeyStore.
-- `transport` : socket WSS unique lié au réseau local, authentification avant envoi, séquences,
-  file contenant uniquement la dernière observation, âge monotone et reconnexion temporisée.
-- `navigation` : listener Android et adaptateurs Maps/ABRP séparés, sélection explicite de la source,
-  arrêt en cas de perte de source ou indication inexploitable. Réobservation des notifications
-  actives du système chaque seconde ; aucun timer ne rajeunit un ancien contenu en cache.
-- `capture` : emplacement réservé au deuxième jalon ; aucun code de capture activé.
+- `pairing`: strict profile validation, SHA-256 fingerprint of the DER certificate, AES-GCM, and AndroidKeyStore.
+- `transport`: a single WSS socket bound to the local network, authentication before sending, sequences,
+  a queue containing only the latest observation, monotonic age tracking, and delayed reconnection.
+- `navigation`: an Android listener and separate Maps/ABRP adapters, explicit source selection,
+  and a stop when the source is lost or guidance is unusable. Active system notifications are
+  observed again every second; no timer makes old cached content appear fresh.
+- `capture`: reserved for the second milestone; no capture code is enabled.
 
-Le [contrat v1](protocol/v1/PROTOCOL_V1.md) et ses fixtures sont copiés sans modification depuis
-`Kiroha/byd-dashcast` au commit `48e8f30344d513967e7d065de1ef369c92a89b23`.
-Les hashes sont dans [upstream.json](protocol/v1/upstream.json). Toute évolution doit passer les
-tests de compatibilité des deux applications. La version de l’application évolue indépendamment.
-La provenance des parsers est décrite dans [PARSER_PROVENANCE.md](docs/PARSER_PROVENANCE.md).
+The [v1 contract](protocol/v1/PROTOCOL_V1.md) and its fixtures are copied unchanged from
+`Kiroha/byd-dashcast` at commit `48e8f30344d513967e7d065de1ef369c92a89b23`.
+Hashes are in [upstream.json](protocol/v1/upstream.json). Any change must pass both apps'
+compatibility tests. The app version evolves independently.
+Parser provenance is documented in [PARSER_PROVENANCE.md](docs/PARSER_PROVENANCE.md).
 
-Le satellite ne contient aucune sortie OEM, dépendance CAN, ADB, API véhicule ou clé plateforme.
-Aucun journal de support ne reçoit de jeton, SDP, notification ou texte d’itinéraire.
+The satellite contains no OEM output, CAN dependency, ADB, vehicle API, or platform key.
+Support logs never receive tokens, SDP, notifications, or route text.
 
-## Deuxième jalon
+## Second milestone
 
-Après validation du guidage autonome : MediaProjection avec consentement utilisateur, service
-de premier plan dédié et émetteur WebRTC natif maintenu/versionné. Une piste vidéo, ICE local,
-signalisation WSS v1, résolution/cadence modestes et mesure de latence, charge et pertes Overdrive.
-Tester la WebView réceptrice installée avant d’envisager un récepteur natif et son coût APK/ABI.
-La capture ne crée pas un deuxième écran invisible indépendant et n’autorise pas l’injection
-d’entrées. Aucun redémarrage vidéo sans consentement n’est promis.
+After standalone guidance is validated: MediaProjection with user consent, a dedicated foreground
+service, and a maintained, versioned native WebRTC sender. One video track, local ICE, WSS v1
+signaling, modest resolution/frame rate, and measurements of latency, load, and Overdrive frame drops.
+Test the installed receiver WebView before considering a native receiver and its APK/ABI cost.
+Capture does not create an independent invisible second display or allow input injection.
+Video restart without consent is not promised.
 
-Références Android utilisées : [services connectedDevice](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device),
-[cycle de vie du listener](https://developer.android.com/reference/android/service/notification/NotificationListenerService),
-[socket lié à un Network](https://developer.android.com/reference/android/net/Network#bindSocket(java.net.Socket)).
+Android references used: [connectedDevice services](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device),
+[listener lifecycle](https://developer.android.com/reference/android/service/notification/NotificationListenerService),
+[socket bound to a Network](https://developer.android.com/reference/android/net/Network#bindSocket(java.net.Socket)).

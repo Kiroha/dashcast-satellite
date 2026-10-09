@@ -1,64 +1,64 @@
-# Validation sur le véhicule
+# Vehicle validation
 
-Statut : **à réaliser sur matériel réel**. Une compilation et des tests JVM ne prouvent ni le
-rendu physique ni le bon fonctionnement du stockage AndroidKeyStore/TLS de la box.
+Status: **pending testing on physical hardware**. A build and JVM tests do not prove correct
+physical display output or correct operation of AndroidKeyStore storage/TLS on the box.
 
-## Relevé initial
+## Initial device record
 
-| Élément | Valeur / résultat |
+| Item | Value / result |
 | --- | --- |
-| Modèle annoncé par l’utilisateur | Carlinkit Tbox Ultra 1 |
-| Version Android annoncée | Android 15 |
-| Fabricant / modèle exact dans l’application | À relever |
-| Numéro de build / firmware de la box | À relever |
-| Version APK satellite / DashCast | À relever |
-| WebView box et véhicule | À relever |
-| Accès aux notifications visible et accordable | À vérifier |
-| Version et langue Google Maps | À relever |
-| Version et langue ABRP | À relever |
-| Appareil qui héberge le hotspot | À préciser |
-| Réseau local utilisable, port 47832 joignable | À vérifier |
-| SIM : données mobiles Maps/ABRP utilisables pendant WSS local | À vérifier |
-| Économie d’énergie / restrictions OEM | À relever |
+| Model reported by the user | Carlinkit Tbox Ultra 1 |
+| Reported Android version | Android 15 |
+| Exact manufacturer / model shown in the app | To record |
+| Box build number / firmware | To record |
+| Satellite / DashCast APK version | To record |
+| Box and vehicle WebView | To record |
+| Notification access visible and grantable | To verify |
+| Google Maps version and language | To record |
+| ABRP version and language | To record |
+| Device hosting the hotspot | To identify |
+| Usable local network, port 47832 reachable | To verify |
+| SIM: Maps/ABRP mobile data usable during local WSS | To verify |
+| Power saving / OEM restrictions | To record |
 
-L’écran Satellite affiche fabricant, modèle, Android/API et version WebView. Ne joindre aux
-comptes rendus ni fichier d’appairage, ni jeton, ni capture de notification ou itinéraire privé.
-Pour caractériser un format de guidage manquant, fournir uniquement un exemple synthétique
-anonymisé reproduisant les champs utiles, avec version/langue de l’application source.
+The Satellite screen shows the manufacturer, model, Android/API, and WebView version. Do not attach
+pairing files, tokens, screenshots of notifications, or private routes to reports.
+To document an unsupported guidance format, provide only a synthetic, anonymized example
+reproducing the relevant fields, together with the source app's version and language.
 
-## Premier jalon : guidage
+## First milestone: guidance
 
-| Essai | Résultat attendu | Observé |
+| Test | Expected result | Observed |
 | --- | --- | --- |
-| Récepteur satellite désactivé | Fonctionnement DashCast local inchangé | À faire |
-| Import d’un profil valide | Connexion locale authentifiée | À faire |
-| Profil révoqué / certificat différent | Pas de guidage accepté ; nouvel appairage nécessaire | À faire |
-| Socket connecté, aucune navigation | Source inactive, aucun ancien virage | À faire |
-| Maps avec indication explicite | Manœuvre et distance correctes au HUD/cluster | À faire |
-| Maps avec icône seule / indication ambiguë | État non pris en charge, aucune direction inventée | À faire |
-| ABRP | Actif uniquement si une indication réellement observable est exploitable | À faire |
-| Changement Maps ↔ ABRP | L’ancienne source est arrêtée, aucune donnée mélangée | À faire |
-| Arrêt de la navigation / retrait notification | Effacement explicite de l’ancien guidage | À faire |
-| Accès notification révoqué puis réaccordé | Arrêt, puis nouvelles observations uniquement | À faire |
-| Perte du Wi-Fi puis reconnexion | Effacement ; reprise d’une observation récente | À faire |
-| Fermeture UI DashCast / UI satellite | Services de guidage restent opérationnels | À faire |
-| Bouton Arrêter satellite | Socket fermé, guidage effacé | À faire |
-| HUD seul / cluster seul / les deux / aucune sortie | Respect des choix DashCast | À faire |
-| Réglage guidage récepteur changé | Valider effet réel ; reconnecter pour rafraîchir son statut | À faire |
-| Redémarrage box avec reprise désactivée | Reprise uniquement après Démarrer | À faire |
-| Redémarrage box avec reprise activée | Reconnexion si Android l’autorise ; pas de cache ancien | À faire |
-| Nuit complète / cycles contact véhicule | Reprise correcte sans duplication de connexion | À faire |
-| Navigation SIM pendant liaison locale | Internet source reste utilisable | À faire |
+| Satellite receiver disabled | Local DashCast operation unchanged | Pending |
+| Import a valid profile | Authenticated local connection | Pending |
+| Revoked profile / different certificate | No guidance accepted; pairing required again | Pending |
+| Socket connected, no navigation | Inactive source, no old turn | Pending |
+| Maps with explicit guidance | Correct maneuver and distance on the HUD/cluster | Pending |
+| Maps with an unrecognized image only / ambiguous guidance | Unsupported state, no invented direction | Pending |
+| ABRP | Active only when observable guidance is usable | Pending |
+| Switch Maps ↔ ABRP | Previous source stopped, no mixed data | Pending |
+| Stop navigation / remove notification | Previous guidance explicitly cleared | Pending |
+| Revoke and restore notification access | Stop, then new observations only | Pending |
+| Wi-Fi lost, then reconnected | Guidance cleared; resume with a recent observation | Pending |
+| Close DashCast UI / satellite UI | Guidance services remain operational | Pending |
+| Satellite Stop button | Socket closed, guidance cleared | Pending |
+| HUD only / cluster only / both / no output | DashCast selections respected | Pending |
+| Change receiver guidance setting | Validate actual effect; reconnect to refresh its status | Pending |
+| Reboot box with resume disabled | Resume only after Start | Pending |
+| Reboot box with resume enabled | Reconnect if Android allows it; no stale cache | Pending |
+| Overnight / vehicle ignition cycles | Correct recovery without duplicate connections | Pending |
+| SIM navigation during local connection | Source app's internet connection remains usable | Pending |
 
-Horodater les changements d’état et le rendu observé, sans contenu d’itinéraire. Le récepteur
-expire le guidage à six secondes, âge source compris ; la perte détectée doit déclencher un stop
-plus tôt. Une notification de navigation restée à tort active dans une application source est une
-limite d’observation à caractériser sur appareil, pas une preuve de progression réelle du trajet.
+Timestamp state changes and observed display output without route content. The receiver expires
+guidance after six seconds, including source age; detected loss must trigger a stop sooner.
+A navigation notification incorrectly left active by a source app is an observation limitation
+to investigate on the device, not proof of actual route progress.
 
-## Deuxième jalon : vidéo (hors de cet APK)
+## Second milestone: video (not included in this APK)
 
-Après validation du guidage : consentement de capture, carte affichée au cluster, fermeture du
-viewer, arrêt de capture, reconnexion et renouvellement du consentement lorsque requis. Relever
-codec, résolution/cadence, latence écran-cluster, CPU/GPU, température et pertes de frames Overdrive.
-L’acceptation finale exige le véhicule réel, sources arrêtées correctement et DashCast normal
-préservé lorsque le satellite est désactivé.
+After guidance is validated: capture consent, map displayed on the cluster, viewer closure,
+capture stop, reconnection, and renewed consent when required. Record the codec, resolution/frame
+rate, screen-to-cluster latency, CPU/GPU, temperature, and Overdrive frame drops.
+Final acceptance requires the actual vehicle, sources that stop correctly, and normal DashCast
+operation preserved when the satellite is disabled.

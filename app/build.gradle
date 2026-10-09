@@ -1,0 +1,68 @@
+plugins { id 'com.android.application' }
+
+def signingVariables = ['SATELLITE_KEYSTORE', 'SATELLITE_STORE_PASSWORD',
+                        'SATELLITE_KEY_ALIAS', 'SATELLITE_KEY_PASSWORD']
+def hasReleaseKey = signingVariables.every { System.getenv(it) }
+
+android {
+    namespace = 'io.github.kiroha.dashcast.satellite'
+    compileSdk = 36
+    defaultConfig {
+        applicationId = 'io.github.kiroha.dashcast.satellite'
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 1
+        versionName = '0.1.0'
+    }
+    signingConfigs {
+        if (hasReleaseKey) {
+            satelliteRelease {
+                storeFile = file(System.getenv('SATELLITE_KEYSTORE'))
+                storePassword = System.getenv('SATELLITE_STORE_PASSWORD')
+                keyAlias = System.getenv('SATELLITE_KEY_ALIAS')
+                keyPassword = System.getenv('SATELLITE_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug { applicationIdSuffix = '.debug'; versionNameSuffix = '-dev' }
+        release {
+            if (hasReleaseKey) signingConfig = signingConfigs.satelliteRelease
+            minifyEnabled = false
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    testOptions { unitTests.includeAndroidResources = true }
+    sourceSets { test.resources.srcDir '../protocol' }
+    lint {
+        abortOnError = true
+        warningsAsErrors = true
+        // Build versions are pinned and reviewed together; availability is not a correctness check.
+        disable 'AndroidGradlePluginVersion'
+    }
+}
+
+kotlin { compilerOptions { jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17 } }
+
+tasks.register('requireSatelliteReleaseKey') {
+    doLast {
+        if (!hasReleaseKey) throw new GradleException(
+            'Release requires the four SATELLITE_* signing variables and a dedicated application key.')
+    }
+}
+tasks.configureEach {
+    if (name == 'packageRelease' || name == 'signReleaseBundle') {
+        dependsOn 'requireSatelliteReleaseKey'
+    }
+}
+
+dependencies {
+    implementation 'org.java-websocket:Java-WebSocket:1.6.0'
+    // Do not send library diagnostics to a log backend: frame payloads are private.
+    runtimeOnly 'org.slf4j:slf4j-nop:2.0.6'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
+}

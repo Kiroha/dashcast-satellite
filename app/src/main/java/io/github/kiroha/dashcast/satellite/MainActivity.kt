@@ -1,0 +1,233 @@
+package io.github.kiroha.dashcast.satellite
+
+import android.Manifest
+import android.app.Activity
+import android.content.ComponentName
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
+import android.service.notification.NotificationListenerService
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowManager
+import android.webkit.WebView
+import android.widget.Button
+import android.widget.CheckBox
+import android.widget.RadioGroup
+import android.widget.TextView
+import android.widget.Toast
+import io.github.kiroha.dashcast.satellite.navigation.NavigationNotificationListenerService
+import io.github.kiroha.dashcast.satellite.navigation.NavigationObservationBus
+import io.github.kiroha.dashcast.satellite.navigation.NavigationSource
+import io.github.kiroha.dashcast.satellite.navigation.NotificationAccess
+import io.github.kiroha.dashcast.satellite.navigation.SourceStatus
+import io.github.kiroha.dashcast.satellite.pairing.PairingProfile
+import io.github.kiroha.dashcast.satellite.pairing.PairingStore
+import io.github.kiroha.dashcast.satellite.transport.TransportState
+
+class MainActivity : Activity() {
+    private val handler = Handler(Looper.getMainLooper())
+    private lateinit var settings: SatelliteSettings
+    private var paired = false
+    private var lastImportRevision = -1L
+    private val refresh = object : Runnable {
+        override fun run() {
+            renderStatus()
+            handler.postDelayed(this, 500)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        setContentView(R.layout.activity_main)
+        settings = SatelliteSettings(this)
+        findViewById<View>(R.id.root).setOnApplyWindowInsetsListener { view, insets ->
+            if (Build.VERSION.SDK_INT >= 30) {
+                val bars = insets.getInsets(WindowInsets.Type.systemBars())
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            } else {
+                @Suppress("DEPRECATION")
+                view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+            }
+            insets
+        }
+        findViewById<Button>(R.id.import_pairing).setOnClickListener {
+            if (importing) return@setOnClickListener
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain", "application/octet-stream"))
+            }
+            runCatching { startActivityForResult(intent, IMPORT_PROFILE) }
+                .onFailure { toast(R.string.settings_unavailable) }
+        }
+        findViewById<Button>(R.id.forget_pairing).setOnClickListener {
+            if (importing) return@setOnClickListener
+            stopTransmission()
+            runCatching { PairingStore(this).clear() }
+                .onFailure { toast(R.string.import_failed) }
+            refreshPairing()
+            renderStatus()
+        }
+        val choice = findViewById<RadioGroup>(R.id.source_choice)
+        choice.check(if (settings.source == NavigationSource.MAPS) R.id.maps else R.id.abrp)
+        choice.setOnCheckedChangeListener { _, checked ->
+            settings.source = if (checked == R.id.maps) NavigationSource.MAPS else NavigationSource.ABRP
+            NavigationObservationBus.configure(settings.source, settings.enabled)
+        }
+        findViewById<Button>(R.id.grant_access).setOnClickListener {
+            runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+                .onFailure { toast(R.string.settings_unavailable) }
+        }
+        findViewById<Button>(R.id.start).setOnClickListener {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION)
+            } else startTransmission()
+        }
+        findViewById<Button>(R.id.stop).setOnClickListener { stopTransmission() }
+        findViewById<CheckBox>(R.id.restart_after_boot).apply {
+            isChecked = settings.restartAfterBoot
+            setOnCheckedChangeListener { _, checked -> settings.restartAfterBoot = checked }
+        }
+        val webView = runCatching { WebView.getCurrentWebViewPackage()?.versionName }.getOrNull()
+        findViewById<TextView>(R.id.device_info).text = getString(R.string.device_info,
+            Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT,
+            webView ?: getString(R.string.unknown))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshPairing()
+        handler.post(refresh)
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(refresh)
+        super.onPause()
+    }
+
+    @Deprecated("Platform callback used for the minimal framework-only UI")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != IMPORT_PROFILE || resultCode != RESULT_OK) return
+        if (importing) return
+        val uri = data?.data ?: return
+        stopTransmission()
+        importing = true
+        renderStatus()
+        Thread({
+            val success = runCatching {
+                val json = contentResolver.openInputStream(uri)?.use { stream ->
+                    val bytes = ByteArray(16_385)
+                    var count = 0
+                    while (count < bytes.size) {
+                        val read = stream.read(bytes, count, bytes.size - count)
+                        if (read < 0) break
+                        count += read
+                    }
+                    require(count in 1..16_384)
+                    String(bytes, 0, count, Charsets.UTF_8)
+                } ?: error("unreadable_profile")
+                PairingStore(applicationContext).save(PairingProfile.parse(json))
+            }.isSuccess
+            handler.post {
+                importing = false
+                importRevision++
+                if (!isFinishing && !isDestroyed) {
+                    refreshPairing()
+                    renderStatus()
+                    toast(if (success) R.string.import_ok else R.string.import_failed)
+                }
+            }
+        }, "pairing-import").start()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Android permits the foreground service even if its notification drawer permission is denied.
+        if (requestCode == NOTIFICATION_PERMISSION) startTransmission()
+    }
+
+    private fun startTransmission() {
+        if (importing) return
+        refreshPairing()
+        if (!paired) { toast(R.string.need_profile); return }
+        settings.enabled = true
+        try {
+            startForegroundService(Intent(this, SatelliteService::class.java))
+            if (NotificationAccess.isGranted(this)) {
+                NotificationListenerService.requestRebind(ComponentName(this,
+                    NavigationNotificationListenerService::class.java))
+            }
+        } catch (_: Exception) {
+            settings.enabled = false
+            toast(R.string.service_error)
+        }
+        renderStatus()
+    }
+
+    private fun stopTransmission() {
+        settings.enabled = false
+        NavigationObservationBus.configure(settings.source, transmittingEnabled = false)
+        stopService(Intent(this, SatelliteService::class.java))
+        renderStatus()
+    }
+
+    private fun refreshPairing() {
+        paired = runCatching { PairingStore(this).load() != null }.getOrDefault(false)
+    }
+
+    private fun renderStatus() {
+        // An import can finish after Activity recreation; refresh the newly visible instance too.
+        if (lastImportRevision != importRevision) {
+            refreshPairing()
+            lastImportRevision = importRevision
+        }
+        val control = SatelliteState.transport
+        val connection = when (control.state) {
+            TransportState.STOPPED -> R.string.state_stopped
+            TransportState.WAITING_FOR_LAN -> R.string.state_waiting_for_lan
+            TransportState.CONNECTING -> R.string.state_connecting
+            TransportState.AUTHENTICATING -> R.string.state_authenticating
+            TransportState.CONNECTED -> R.string.state_connected
+            TransportState.RECONNECTING -> R.string.state_reconnecting
+            TransportState.PAIRING_REJECTED -> R.string.state_pairing_rejected
+        }
+        val granted = NotificationAccess.isGranted(this)
+        val source = when (if (granted) NavigationObservationBus.status else SourceStatus.PERMISSION_MISSING) {
+            SourceStatus.ACTIVE -> R.string.source_active
+            SourceStatus.INACTIVE -> R.string.source_inactive
+            SourceStatus.UNSUPPORTED -> R.string.source_unsupported
+            SourceStatus.PERMISSION_MISSING -> R.string.source_permission_missing
+            SourceStatus.SOURCE_UNAVAILABLE -> R.string.source_unavailable
+        }
+        findViewById<TextView>(R.id.pairing_state).setText(if (paired) R.string.paired else R.string.not_paired)
+        findViewById<TextView>(R.id.access_state).setText(if (granted) R.string.access_on else R.string.access_off)
+        findViewById<TextView>(R.id.connection_state).text = if (control.detail == "service_start_failed")
+            getString(R.string.service_error) else getString(R.string.connection_status, getString(connection))
+        findViewById<TextView>(R.id.source_state).text = getString(R.string.source_status, getString(source))
+        findViewById<TextView>(R.id.receiver_state).text = getString(R.string.receiver_status,
+            getString(if (control.remoteGuidance) R.string.receiver_enabled else R.string.receiver_disabled))
+        findViewById<Button>(R.id.import_pairing).isEnabled = !importing
+        findViewById<Button>(R.id.forget_pairing).isEnabled = paired && !importing
+        findViewById<Button>(R.id.start).isEnabled = paired && !importing &&
+            (!settings.enabled || control.state == TransportState.STOPPED)
+        findViewById<Button>(R.id.stop).isEnabled = settings.enabled
+    }
+
+    private fun toast(message: Int) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
+
+    companion object {
+        @Volatile private var importing = false
+        private var importRevision = 0L
+        private const val IMPORT_PROFILE = 1
+        private const val NOTIFICATION_PERMISSION = 2
+    }
+}

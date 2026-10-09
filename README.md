@@ -58,7 +58,8 @@ Releases are independent of DashCast. The manual `Signed satellite build` workfl
 Never use the vehicle's platform key. For local builds, replace the base64 secret with
 `SATELLITE_KEYSTORE`, the absolute path to this dedicated keystore, then run `:app:assembleRelease`.
 Without all four settings, release packaging fails explicitly. No release secrets have been
-provisioned and no release has been published as part of this foundation.
+provisioned. Debug-signed test APKs are available as GitHub prereleases; these are separate from
+the production signing pipeline.
 
 ## Structure and contract
 

@@ -41,7 +41,7 @@ class AbrpAdapter : NavigationAdapter {
 
 internal object ConservativeGuidanceParser {
     private val distancePrefix = Regex(
-        "^(?:(?:in|dans|after|après|nach)\\s+)?\\d+[.,]?\\d*[\\s\\u00a0]*(?:km|км|كم|mi|ft|yd|mt|m|м|م)(?![\\p{L}\\p{N}])[\\s,;:—–-]*",
+        "^(?:(?:in|dans|after|après|nach)\\s+)?${NavTextParsers.DISTANCE_NUMBER_PATTERN}[\\s\\u00a0\\u202f]*(?:km|км|كم|mi|ft|yd|mt|m|м|م)(?![\\p{L}\\p{N}])[\\s,;:—–-]*",
         RegexOption.IGNORE_CASE,
     )
     // Only explicit phrases are carried over; generic 'continue', 'destination', 'merge' and

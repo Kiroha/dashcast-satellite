@@ -22,7 +22,10 @@ does not assign handedness to a generic roundabout/U-turn/merge/exit, rejects co
 instructions, requires maneuver distance from an instruction or distance-only field, bounds numeric
 values to protocol v1, converts Arabic `كم` to kilometres, and normalizes digits before duration
 parsing. ETA remains unknown in this milestone. A route-summary distance cannot fill a missing
-maneuver distance. Only explicit EN/FR/DE instructions are currently recognized; additional languages
+maneuver distance. Distance numbers accept groups of three separated by spaces, no-break spaces,
+or narrow no-break spaces. Ambiguous punctuation forms such as `1,000` and `1.000` are unsupported
+without an observed source locale; malformed groups never fall back to their numeric suffix.
+Only explicit EN/FR/DE instructions are currently recognized; additional languages
 need source fixtures. Regex/unit/digit and guidance-policy cases derive from the upstream
 `NavTextParsersCharacterizationTest`, `ArabicNavParsingTest` and `NavGuidancePolicyTest`; the tests here
 exercise the extracted conversion itself, source disappearance, unavailable reads and permissions.
@@ -42,6 +45,8 @@ Every liveness sample calls Android's current active-notification API after list
 The sampler keeps no previous guidance snapshot. A failed read, grant revocation, source removal,
 or unsupported state emits a stop. A successful sample stamps elapsed realtime **before** the OS
 read, preserving read/parse/queue age; a transport reconnect must obtain another real sample.
+Fresh inactive observations also forward stops so an earlier stop that expired in the transport
+queue can be retried without changing its original observation time.
 Notification text and route details are never written to support logs or storage.
 
 Android API references:

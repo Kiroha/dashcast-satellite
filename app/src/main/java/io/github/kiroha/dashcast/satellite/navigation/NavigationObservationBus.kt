@@ -31,8 +31,7 @@ object NavigationObservationBus {
         configuration = next
         if (previous.source != source || !transmittingEnabled || !previous.transmittingEnabled) {
             publish(SourceObservation(Observation.Stop(SystemClock.elapsedRealtime()),
-                if (status == SourceStatus.PERMISSION_MISSING) SourceStatus.PERMISSION_MISSING else SourceStatus.INACTIVE),
-                force = true)
+                if (status == SourceStatus.PERMISSION_MISSING) SourceStatus.PERMISSION_MISSING else SourceStatus.INACTIVE))
         }
         // Even unchanged configuration requests a genuine resnapshot after socket replacement.
         configurationObservers.forEach { it() }
@@ -43,10 +42,10 @@ object NavigationObservationBus {
         return Closeable { configurationObservers.remove(observer) }
     }
 
-    internal fun publish(value: SourceObservation, force: Boolean = false) {
-        val previous = status
+    internal fun publish(value: SourceObservation) {
         status = value.status
-        if (!force && value.observation is Observation.Stop && previous == value.status) return
+        // Each value represents a new source read or lifecycle observation. Forward fresh stops
+        // too: an earlier stop may have expired in the transport queue before dispatch.
         observers.forEach { observer -> observer(value.observation, value.status) }
     }
 }

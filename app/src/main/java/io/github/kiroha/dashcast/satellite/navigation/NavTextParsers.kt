@@ -10,11 +10,17 @@ import kotlin.math.roundToInt
 
 /** Small pure subset of the proven parser, with bounds and Arabic kilometre conversion fixed. */
 internal object NavTextParsers {
+    // Capture the whole number before validating it, including malformed grouping. Otherwise a
+    // failed match at "1" in "1 00 m" could silently retry at "00" and report zero metres.
+    const val DISTANCE_NUMBER_PATTERN = "[+−-]?\\d[\\d., \\u00A0\\u202F]*"
     // Unicode lookarounds preserve unit boundaries on both Android and desktop JVMs.
     private val distance = Regex(
-        "(?<![\\p{L}\\p{N}.,+−-])(\\d+[.,]?\\d*)[\\s\\u00A0]*(km|км|كم|mi|ft|yd|mt|m|м|م)(?![\\p{L}\\p{N}])",
+        "(?<![\\p{L}\\p{N}.,+−-])($DISTANCE_NUMBER_PATTERN)[\\s\\u00A0\\u202F]*(km|км|كم|mi|ft|yd|mt|m|м|م)(?![\\p{L}\\p{N}])",
         RegexOption.IGNORE_CASE,
     )
+    private val plainNumber = Regex("\\d+(?:[.,]\\d+)?")
+    private val spaceGroupedNumber = Regex("\\d{1,3}(?:[ \\u00A0\\u202F]\\d{3})+(?:[.,]\\d+)?")
+    private val ambiguousPunctuationGrouping = Regex("\\d{1,3}[.,]\\d{3}")
     private val hours = Regex(
         "(?<![\\p{L}\\p{N}])(\\d+)[\\s\\u00A0]*(?:h|hr|hrs|hour|hours|ч|ч\\.|ساعة|س)(?![\\p{L}\\p{N}])",
         RegexOption.IGNORE_CASE,
@@ -48,8 +54,19 @@ internal object NavTextParsers {
     }
 
     fun meters(raw: String, maximum: Int = 1_000_000): Int? {
-        val match = distance.find(normalizeDigits(raw)) ?: return null
-        val value = match.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
+        val normalized = normalizeDigits(raw)
+        val match = distance.find(normalized) ?: return null
+        // A separator outside the supported grouping spaces must not expose a numeric suffix.
+        val prefix = normalized.substring(0, match.range.first).trimEnd()
+        val before = prefix.lastOrNull()
+        if (before != null && (before.isDigit() || before in "+−-" ||
+                before in ".," && prefix.dropLast(1).lastOrNull()?.isDigit() == true)) return null
+        val number = match.groupValues[1].trim()
+        if (!plainNumber.matches(number) && !spaceGroupedNumber.matches(number)) return null
+        // Without the source locale, "1,000" and "1.000" could mean one or one thousand.
+        if (ambiguousPunctuationGrouping.matches(number)) return null
+        val value = number.filterNot { it == ' ' || it == '\u00A0' || it == '\u202F' }
+            .replace(',', '.').toDoubleOrNull() ?: return null
         val factor = when (match.groupValues[2].lowercase(Locale.ROOT)) {
             "km", "км", "كم" -> 1_000.0
             "mi" -> 1_609.344

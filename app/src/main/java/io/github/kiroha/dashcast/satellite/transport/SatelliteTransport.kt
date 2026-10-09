@@ -14,14 +14,11 @@ import org.java_websocket.drafts.Draft_6455
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
 import java.net.Inet6Address
-import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
-import java.net.Socket
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import javax.net.SocketFactory
 import javax.net.ssl.SSLParameters
 
 enum class TransportState { STOPPED, WAITING_FOR_LAN, CONNECTING, AUTHENTICATING, CONNECTED, RECONNECTING, PAIRING_REJECTED }
@@ -44,6 +41,7 @@ class SatelliteTransport(context: Context, private val onStatus: (TransportStatu
     private val networks = LinkedHashSet<Network>()
     private var profile: PairingProfile? = null
     private var socket: WebSocketClient? = null
+    private var socketFactory: LanTlsSocketFactory? = null
     private var selectedNetwork: Network? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var authenticated = false
@@ -202,11 +200,13 @@ class SatelliteTransport(context: Context, private val onStatus: (TransportStatu
                 if (this@SatelliteTransport.socket === this) fail(if (error is javax.net.ssl.SSLException) "tls_failed" else "connection_failed")
             }
         }
-        client.setSocketFactory(LanTlsSocketFactory(network, connectivity, host, pairing))
+        val factory = LanTlsSocketFactory(network, connectivity, host, pairing)
+        client.setSocketFactory(factory)
         client.isTcpNoDelay = true
         client.connectionLostTimeout = 0 // One explicit bounded heartbeat policy, no second scheduler.
         client.isDaemon = true
         selectedNetwork = network
+        socketFactory = factory
         socket = client
         authenticated = false
         remoteGuidance = false
@@ -264,11 +264,14 @@ class SatelliteTransport(context: Context, private val onStatus: (TransportStatu
 
     private fun disconnect() {
         val old = socket
+        val oldFactory = socketFactory
         socket = null
+        socketFactory = null
         authenticated = false
         remoteGuidance = false
         selectedNetwork = null
-        // Closing the actual socket also cancels a TLS read; no blocking join on the lifecycle thread.
+        // The factory also owns raw/TLS sockets before Java-WebSocket has assigned its socket.
+        oldFactory?.close()
         try { old?.closeConnection(1000, "session ended"); old?.socket?.close() } catch (_: Exception) {}
     }
 
@@ -287,31 +290,20 @@ class SatelliteTransport(context: Context, private val onStatus: (TransportStatu
 
 /** Only creates sockets on the selected LAN Network. It never changes process/default routing. */
 private class LanTlsSocketFactory(
-    private val network: Network,
-    private val connectivity: ConnectivityManager,
-    private val host: String,
-    private val pairing: PairingProfile,
-) : SocketFactory() {
-    override fun createSocket(): Socket {
-        var raw: Socket? = null
-        try {
-            val address = PairingProfile.numericLocalAddress(host) ?: error("Invalid LAN address")
-            val scoped = if (address is Inet6Address && address.isLinkLocalAddress) {
-                val interfaceName = connectivity.getLinkProperties(network)?.interfaceName ?: error("Missing LAN interface")
-                Inet6Address.getByAddress(null, address.address, NetworkInterface.getByName(interfaceName))
-            } else address
-            raw = network.socketFactory.createSocket()
-            raw.tcpNoDelay = true
-            raw.connect(InetSocketAddress(scoped, pairing.port), 4_000)
-            return PinnedTls.prepareSocket(raw, host, pairing.port, pairing.certificateSha256)
-        } catch (error: Exception) {
-            try { raw?.close() } catch (_: Exception) {}
-            throw error
-        }
-    }
-
-    override fun createSocket(host: String, port: Int): Socket = throw UnsupportedOperationException()
-    override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket = throw UnsupportedOperationException()
-    override fun createSocket(host: InetAddress, port: Int): Socket = throw UnsupportedOperationException()
-    override fun createSocket(address: InetAddress, port: Int, localAddress: InetAddress, localPort: Int): Socket = throw UnsupportedOperationException()
-}
+    network: Network,
+    connectivity: ConnectivityManager,
+    host: String,
+    pairing: PairingProfile,
+) : CancellableSocketFactory(
+    createRawSocket = { network.socketFactory.createSocket() },
+    prepareSocket = { raw ->
+        val address = PairingProfile.numericLocalAddress(host) ?: error("Invalid LAN address")
+        val scoped = if (address is Inet6Address && address.isLinkLocalAddress) {
+            val interfaceName = connectivity.getLinkProperties(network)?.interfaceName ?: error("Missing LAN interface")
+            Inet6Address.getByAddress(null, address.address, NetworkInterface.getByName(interfaceName))
+        } else address
+        raw.tcpNoDelay = true
+        raw.connect(InetSocketAddress(scoped, pairing.port), 4_000)
+        PinnedTls.prepareSocket(raw, host, pairing.port, pairing.certificateSha256)
+    },
+)

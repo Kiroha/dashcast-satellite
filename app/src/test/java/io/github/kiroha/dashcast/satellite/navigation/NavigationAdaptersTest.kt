@@ -110,6 +110,41 @@ class NavigationAdaptersTest {
             .forEach { assertNull(it, NavTextParsers.meters(it)) }
     }
 
+    @Test fun `space grouped distances retain the whole number in fields and instructions`() {
+        for (separator in listOf(" ", "\u00a0", "\u202f")) {
+            val grouped = "1${separator}000"
+            assertEquals(1000, NavTextParsers.meters("$grouped m"))
+            assertEquals(305, NavTextParsers.meters("$grouped ft"))
+            assertEquals(1_000_000, NavTextParsers.meters("1${separator}000${separator}000 m"))
+            assertNull(NavTextParsers.meters("1${separator}001 km"))
+            for ((title, text) in listOf(
+                "$grouped m" to "Turn right",
+                "" to "Turn right in $grouped m",
+                "Dans $grouped m, tournez à droite" to "",
+            )) {
+                val parsed = maps.parse(notification(title = title, text = text)) as ParseResult.Valid
+                assertEquals("right", parsed.guidance.maneuver)
+                assertEquals(1000, parsed.guidance.distanceMeters)
+            }
+        }
+        assertEquals(1000, NavTextParsers.meters("١\u202f٠٠٠ m"))
+    }
+
+    @Test fun `ambiguous or malformed grouped distances never become a numeric suffix`() {
+        val unsupported = listOf("1,000 ft", "1.000 ft", "1,000,000 m", "1.000,5 m",
+            "1 00 m", "1\u00a000 m", "1\u202f00 m", "1\t000 m", "1.\t000 m", "-1 000 m")
+        for (distance in unsupported) {
+            assertNull(distance, NavTextParsers.meters(distance))
+            assertEquals(distance, ParseResult.Unsupported, maps.parse(notification(title = distance)))
+            assertEquals(distance, ParseResult.Unsupported,
+                maps.parse(notification(title = "", text = "Turn right in $distance")))
+        }
+        assertEquals(1200, NavTextParsers.meters("1,2 km"))
+        assertEquals(1200, NavTextParsers.meters("1.2 km"))
+        assertEquals(1250, NavTextParsers.meters("1.25 km"))
+        assertEquals(1000, NavTextParsers.meters("Turn right, 1 000 m"))
+    }
+
     @Test fun `remaining time normalizes Arabic and rejects overflow`() {
         assertEquals(1500, NavTextParsers.remainingSeconds("٢٥ دقيقة"))
         assertEquals(3900, NavTextParsers.remainingSeconds("1 h 05 min"))

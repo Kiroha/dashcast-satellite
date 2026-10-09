@@ -1,5 +1,6 @@
 package io.github.kiroha.dashcast.satellite.pairing
 
+import io.github.kiroha.dashcast.satellite.transport.CancellableSocketFactory
 import org.junit.Assert.*
 import org.junit.After
 import org.junit.Before
@@ -13,6 +14,7 @@ import org.java_websocket.server.WebSocketServer
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.ServerSocket
 import java.net.URI
 import java.io.IOException
 import java.security.KeyStore
@@ -145,6 +147,60 @@ class PinnedTlsTest {
             client?.socket?.close()
             try { server.stop(1_000) } catch (_: java.nio.channels.ClosedSelectorException) {
                 // Java-WebSocket may already have closed its selector during client teardown.
+            }
+        }
+    }
+
+    @Test fun `cancelling actual WebSocket during TLS socket creation leaves no late connection`() {
+        val prepared = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val attemptThread = AtomicReference<Thread>()
+        val rawSocket = AtomicReference<Socket>()
+        val tlsSocket = AtomicReference<SSLSocket>()
+        ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { server ->
+            server.soTimeout = 5_000
+            val factory = CancellableSocketFactory(
+                createRawSocket = { Socket("127.0.0.1", server.localPort).also { rawSocket.set(it) } },
+                prepareSocket = { raw ->
+                    PinnedTls.prepareSocket(raw, "127.0.0.1", server.localPort, sha256(certificate().encoded)).also {
+                        tlsSocket.set(it)
+                        attemptThread.set(Thread.currentThread())
+                        prepared.countDown()
+                        check(release.await(5, TimeUnit.SECONDS))
+                    }
+                },
+            )
+            val client = object : WebSocketClient(URI("wss://127.0.0.1:${server.localPort}/satellite/v1")) {
+                override fun onOpen(handshake: ServerHandshake) = fail("Cancelled connection opened")
+                override fun onMessage(message: String) = Unit
+                override fun onClose(code: Int, reason: String, remote: Boolean) = Unit
+                override fun onError(error: Exception) = Unit // Cancellation fails socket creation.
+            }
+            client.setSocketFactory(factory)
+            client.isDaemon = true
+            client.connectionLostTimeout = 0
+            try {
+                client.connect()
+                assertTrue(prepared.await(5, TimeUnit.SECONDS))
+                server.accept().use { peer ->
+                    peer.soTimeout = 5_000
+                    assertNull("Library has not yet acquired the factory socket", client.socket)
+                    factory.close()
+                    client.closeConnection(1000, "session ended")
+                    assertTrue(rawSocket.get().isClosed)
+                    release.countDown()
+                    attemptThread.get().join(5_000)
+                    assertFalse("Connect thread survived cancellation", attemptThread.get().isAlive)
+                    assertTrue(tlsSocket.get().isClosed)
+                    assertNull("Factory must not hand a cancelled socket to a new writer", client.socket)
+                    assertEquals("No TLS or HTTP bytes may be sent after cancellation", -1, peer.getInputStream().read())
+                }
+            } finally {
+                release.countDown()
+                factory.close()
+                client.closeConnection(1000, "test done")
+                client.socket?.close()
+                attemptThread.get()?.join(5_000)
             }
         }
     }

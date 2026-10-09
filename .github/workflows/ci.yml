@@ -12,6 +12,8 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
       - run: python3 tools/verify_protocol.py
       - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace

@@ -26,9 +26,11 @@ text guidance. The second milestone will add video capture.
    **Advanced: import a pairing file** remains available for older receivers. Internal storage
    is encrypted and excluded from backups; remove transferred profile files after importing them.
 4. Explicitly grant notification access in Android and select **Google Maps** or **ABRP**.
-   Reading notifications and displaying notifications require separate permissions.
-   Depending on Android's installation rules, access may require manually allowing restricted
-   settings on the app's settings page. There is no automatic bypass.
+   Reading notifications and displaying notifications require separate permissions. If Android
+   says **App was denied access**, use **Open App info for restricted settings** → **⋮** →
+   **Allow restricted settings**, then return and enable notification access. This is the
+   [Android procedure](https://support.google.com/android/answer/12623953?hl=en); the app cannot
+   grant access itself, and the box firmware may restrict the available settings.
 5. In DashCast, select **Use satellite guidance** and the desired HUD/cluster outputs.
    In Satellite, tap **Start**, then start actual navigation in the selected source app.
 6. Check the **Connection** and **Source** states, then the physical display. An established
@@ -41,6 +43,21 @@ Resuming after reboot is an explicit choice and applies only to guidance. Androi
 firmware may restrict services; the Start button allows manual recovery.
 A hotspot hosted by the box may not expose a usable LAN `Network` to apps:
 validate the actual topology in the [Carlinkit checklist](docs/CARLINKIT_VALIDATION.md).
+
+## Identifying the connection
+
+The saved profile shows the **DashCast ID** and car addresses. Compare that ID with the
+Satellite page in the vehicle. Saving a profile does not establish a live connection.
+**This Satellite** shows this installation's device label and random ID; DashCast displays it
+after authentication, or explicitly shows its last connection while offline. Older senders
+appear as an unknown device. The display name/ID is sender-reported metadata, not an additional
+authentication factor or a per-device revocation list.
+
+Satellite shows the address currently tried and a fixed explanation of the last connection
+failure. Hotspot gateway and local-subnet addresses are tried before other exported private
+addresses, with backoff after the available candidates have been tried. Certificate pinning and
+LAN-bound sockets remain mandatory. Install **DashCast 1.9.13-beta and Satellite 0.4.0-dev** to
+fix the WebSocket upgrade rejection in both applications; existing profiles remain usable.
 
 ## Build and checks
 
@@ -79,7 +96,7 @@ One `app` module, with the `pairing`, `transport`, `navigation`, and `capture` p
 - `capture`: reserved for the second milestone; no capture code is enabled.
 
 The [v1 contract](protocol/v1/PROTOCOL_V1.md) and its fixtures are copied unchanged from
-`Kiroha/byd-dashcast` at commit `48e8f30344d513967e7d065de1ef369c92a89b23`.
+`Kiroha/byd-dashcast` at commit `2ec7d544044838ca5de365adf954d695779dd172`.
 Hashes are in [upstream.json](protocol/v1/upstream.json). Any change must pass both apps'
 compatibility tests. The app version evolves independently.
 The optional [local pairing transfer](protocol/pairing/v1/PAIRING_V1.md) has separate fixtures and

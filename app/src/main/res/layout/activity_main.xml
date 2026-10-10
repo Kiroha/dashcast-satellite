@@ -11,6 +11,7 @@
         <TextView style="@style/SectionTitle" android:text="@string/pairing_section" />
         <TextView style="@style/Body" android:text="@string/pairing_help" />
         <TextView android:id="@+id/pairing_state" style="@style/Body" />
+        <TextView android:id="@+id/satellite_identity" style="@style/Body" />
         <Button android:id="@+id/code_pairing" style="@style/Action" android:text="@string/pair_with_dashcast" />
         <Button android:id="@+id/import_pairing" style="@style/Action" android:text="@string/import_pairing" />
         <Button android:id="@+id/forget_pairing" style="@style/Action" android:text="@string/forget_pairing" />
@@ -25,8 +26,13 @@
         <TextView style="@style/Body" android:text="@string/source_help" />
         <TextView android:id="@+id/access_state" style="@style/Body" />
         <Button android:id="@+id/grant_access" style="@style/Action" android:text="@string/grant_access" />
+        <TextView android:id="@+id/restricted_access_help" style="@style/Body"
+            android:text="@string/restricted_access_help" android:visibility="gone" />
+        <Button android:id="@+id/open_app_info" style="@style/Action"
+            android:text="@string/open_app_info" android:visibility="gone" />
         <TextView style="@style/SectionTitle" android:text="@string/session_section" />
         <TextView android:id="@+id/connection_state" style="@style/Body" />
+        <TextView android:id="@+id/connection_detail" style="@style/Body" android:visibility="gone" />
         <TextView android:id="@+id/source_state" style="@style/Body" />
         <TextView android:id="@+id/receiver_state" style="@style/Body" />
         <Button android:id="@+id/start" style="@style/Action" android:text="@string/start" />

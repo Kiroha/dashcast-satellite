@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.net.Uri
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.view.View
@@ -29,12 +30,15 @@ import io.github.kiroha.dashcast.satellite.pairing.PairingProfile
 import io.github.kiroha.dashcast.satellite.pairing.PairingStore
 import io.github.kiroha.dashcast.satellite.pairing.CodePairingActivity
 import io.github.kiroha.dashcast.satellite.pairing.PairingOperation
+import io.github.kiroha.dashcast.satellite.pairing.SavedReceiver
+import io.github.kiroha.dashcast.satellite.pairing.SatelliteDeviceIdentity
 import io.github.kiroha.dashcast.satellite.transport.TransportState
 
 class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var settings: SatelliteSettings
     private var paired = false
+    private var savedReceiver: SavedReceiver? = null
     private var lastImportRevision = -1L
     private var importOperation: PairingOperation.Ticket? = null
     private val refresh = object : Runnable {
@@ -92,6 +96,12 @@ class MainActivity : Activity() {
             runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
                 .onFailure { toast(R.string.settings_unavailable) }
         }
+        findViewById<Button>(R.id.open_app_info).setOnClickListener {
+            runCatching {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", packageName, null)))
+            }.onFailure { toast(R.string.app_info_unavailable) }
+        }
         findViewById<Button>(R.id.start).setOnClickListener {
             if (Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -107,6 +117,16 @@ class MainActivity : Activity() {
         findViewById<TextView>(R.id.device_info).text = getString(R.string.device_info,
             Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT,
             webView ?: getString(R.string.unknown))
+        val app = applicationContext
+        Thread({
+            val identity = runCatching { SatelliteDeviceIdentity.load(app) }.getOrNull()
+            handler.post {
+                if (!isDestroyed && !isFinishing && identity != null) {
+                    findViewById<TextView>(R.id.satellite_identity).text =
+                        getString(R.string.satellite_identity, identity.name, identity.id)
+                }
+            }
+        }, "satellite-identity").start()
     }
 
     override fun onResume() {
@@ -201,7 +221,8 @@ class MainActivity : Activity() {
     }
 
     private fun refreshPairing() {
-        paired = runCatching { PairingStore(this).load() != null }.getOrDefault(false)
+        savedReceiver = runCatching { PairingStore(this).load()?.let(SavedReceiver::from) }.getOrNull()
+        paired = savedReceiver != null
     }
 
     private fun renderStatus() {
@@ -228,13 +249,43 @@ class MainActivity : Activity() {
             SourceStatus.PERMISSION_MISSING -> R.string.source_permission_missing
             SourceStatus.SOURCE_UNAVAILABLE -> R.string.source_unavailable
         }
-        findViewById<TextView>(R.id.pairing_state).setText(if (paired) R.string.paired else R.string.not_paired)
+        findViewById<TextView>(R.id.pairing_state).text = savedReceiver?.let {
+            getString(R.string.saved_receiver, it.displayId, it.hosts.joinToString(", "))
+        } ?: getString(R.string.not_paired)
         findViewById<TextView>(R.id.access_state).setText(if (granted) R.string.access_on else R.string.access_off)
+        val restrictedHelpVisible = Build.VERSION.SDK_INT >= 33 && !granted
+        findViewById<View>(R.id.restricted_access_help).visibility = if (restrictedHelpVisible) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.open_app_info).visibility = if (restrictedHelpVisible) View.VISIBLE else View.GONE
         findViewById<TextView>(R.id.connection_state).text = if (control.detail == "service_start_failed")
             getString(R.string.service_error) else getString(R.string.connection_status, getString(connection))
+        val details = mutableListOf<String>()
+        control.endpointHost?.let { details.add(getString(R.string.connection_endpoint, it)) }
+        val issue = when (control.detail) {
+            "connection_timeout", "handshake_timeout" -> R.string.connection_timeout
+            "authentication_timeout" -> R.string.authentication_timeout
+            "connection_failed" -> R.string.connection_failed
+            "connection_closed" -> R.string.connection_closed
+            "certificate_rejected" -> R.string.certificate_rejected
+            "tls_failed" -> R.string.tls_failed
+            "pairing_rejected" -> R.string.pairing_rejected
+            "lan_lost" -> R.string.lan_lost
+            "heartbeat_timeout" -> R.string.heartbeat_timeout
+            "protocol_rejected" -> R.string.protocol_rejected
+            "invalid_server_message" -> R.string.invalid_server_message
+            "transport_failure" -> R.string.transport_failure
+            "slow_connection" -> R.string.slow_connection
+            else -> null
+        }
+        issue?.let { details.add(getString(R.string.connection_last_issue, getString(it))) }
+        findViewById<TextView>(R.id.connection_detail).apply {
+            text = details.joinToString("\n")
+            visibility = if (details.isEmpty()) View.GONE else View.VISIBLE
+        }
         findViewById<TextView>(R.id.source_state).text = getString(R.string.source_status, getString(source))
         findViewById<TextView>(R.id.receiver_state).text = getString(R.string.receiver_status,
-            getString(if (control.remoteGuidance) R.string.receiver_enabled else R.string.receiver_disabled))
+            getString(if (control.remoteGuidance) R.string.receiver_enabled
+                else if (control.state == TransportState.CONNECTED) R.string.receiver_guidance_off
+                else R.string.receiver_disabled))
         val busy = PairingOperation.busy
         findViewById<Button>(R.id.code_pairing).isEnabled = !busy
         findViewById<Button>(R.id.import_pairing).isEnabled = !busy

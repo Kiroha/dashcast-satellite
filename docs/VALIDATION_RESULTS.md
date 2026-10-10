@@ -1,5 +1,35 @@
 # Baseline verification — October 9, 2026
 
+## Connection and identity correction — October 10, 2026
+
+Application 0.4.0-dev (version code 5), paired with DashCast 1.9.13-beta, corrects a
+WebSocket upgrade rejection in both applications. Earlier TLS smoke tests used a
+default client draft and missed the explicit empty subprotocol list in the production
+transports. New regressions run the actual Satellite transport and LAN socket factory
+against real pinned TLS sockets, and the actual receiver listener against a real client.
+The affected upgrade tests fail before the fix and pass after it.
+
+Coverage also includes gateway/subnet priority over private cellular addresses, bounded
+endpoint cycling, preferred authenticated address, retry diagnostics, ten-second connection
+and five-second authentication deadlines, cancellation of the owned sockets, certificate
+rejection versus transient TLS errors, device identity in hello, stable installation UUIDs,
+and Android restricted-settings guidance. Receiver tests cover the startup deadline and
+linkage failures, optional device metadata and authenticated history across revocation.
+
+The complete companion suite contains 131 passing tests in 22 suites with no failures,
+errors or skips. Debug lint has zero issues, debug assembly succeeds and both protocol
+pins verify. The updated v1 contract is copied from reviewed receiver commit
+`2ec7d544044838ca5de365adf954d695779dd172`; navigation fixtures remain unchanged.
+Artifact hashes accompany the local build.
+The app remains independently signed. Existing pairing profiles need no migration.
+
+The user reports working code pairing and has enabled Android's restricted settings.
+Notification-listener access, sustained WSS on the vehicle, physical guidance, clearing
+and reconnection still need the [vehicle checklist](CARLINKIT_VALIDATION.md). The original
+vehicle Starting state has not been traced to a specific device log.
+
+## Initial baseline
+
 Application 0.1.0-dev, protocol v1 pinned to receiver commit
 `48e8f30344d513967e7d065de1ef369c92a89b23`.
 

@@ -1,6 +1,6 @@
 # Vehicle validation
 
-Status: **pending testing on physical hardware**. A build and JVM tests do not prove correct
+Status: **partial user feedback; guidance display still pending validation**. A build and JVM tests do not prove correct
 physical display output or correct operation of AndroidKeyStore storage/TLS on the box.
 
 ## Initial device record
@@ -9,11 +9,11 @@ physical display output or correct operation of AndroidKeyStore storage/TLS on t
 | --- | --- |
 | Model reported by the user | Carlinkit Tbox Ultra 1 |
 | Reported Android version | Android 15 |
-| Exact manufacturer / model shown in the app | To record |
+| Exact manufacturer / model shown in the app | QUALCOMM Lito for arm64 (user screenshot) |
 | Box build number / firmware | To record |
 | Satellite / DashCast APK version | To record |
 | Box and vehicle WebView | To record |
-| Notification access visible and grantable | To verify |
+| Notification access visible and grantable | Restricted-settings denial observed; user enabled “Allow restricted settings” on October 10. Final listener grant/observation still to verify. |
 | Google Maps version and language | To record |
 | ABRP version and language | To record |
 | Device hosting the hotspot | Vehicle, using TetherFuseNet; Tbox connected as Wi-Fi client (user reported) |
@@ -25,6 +25,25 @@ The Satellite screen shows the manufacturer, model, Android/API, and WebView ver
 pairing files, tokens, screenshots of notifications, or private routes to reports.
 To document an unsupported guidance format, provide only a synthetic, anonymized example
 reproducing the relevant fields, together with the source app's version and language.
+
+## User report — October 10, 2026
+
+The user reports that code pairing appears to work after the background-dialog fix. DashCast
+remains at **Starting receiver** and Satellite at **connecting** for more than one minute;
+**Use satellite guidance** is off in the receiver screenshot. Android 15 initially blocks
+notification access with the restricted-settings dialog. The user confirmed enabling restricted
+settings; this does not by itself confirm the final notification-listener grant.
+
+Real local socket tests reproduced an independent WebSocket upgrade rejection in both apps.
+DashCast 1.9.13-beta and Satellite 0.4.0-dev correct that failure, expose device identities and
+connection diagnostics, and keep the previous pairing profile compatible. The receiver's exact
+startup failure on the vehicle remains unconfirmed without its logs; a readiness deadline now
+surfaces stalled startup instead of leaving it indefinitely at Starting.
+
+Retest with both new APKs, then verify the notification-listener grant, enable **Use satellite
+guidance**, and start an actual route. Confirm the same DashCast ID on both screens, authenticated
+device identity, valid maneuver output, route-stop clearing and Wi-Fi reconnection. These
+checks remain pending; no physical guidance success is inferred from pairing or local tests.
 
 ## First milestone: guidance
 

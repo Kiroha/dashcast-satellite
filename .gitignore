@@ -9,3 +9,4 @@ local.properties
 *.hprof
 graphify-out/
 __pycache__/
+dist/

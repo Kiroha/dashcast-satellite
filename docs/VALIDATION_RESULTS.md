@@ -111,3 +111,42 @@ profile. Normal guidance still uses the existing pinned WSS connection and prote
 Physical validation remains pending on the Carlinkit Tbox Ultra 1 running Android 15, connected to
 the vehicle's TetherFuseNet hotspot. These automated checks do not establish successful pairing,
 SIM routing, guidance rendering or recovery on that hardware. Video remains unimplemented.
+
+## Maps notification image mapping — October 10, 2026
+
+Application 0.3.0-dev (version code 4) ports the audited Maps image recognizer and reference corpus
+from local DashCast commit `3565221625ef0b3b0e039d7662abff0f5f39aca6`. Satellite translates accepted
+results to portable guidance-v1 names; the receiver's output/OEM implementation stays in DashCast.
+Guidance and optional pairing contracts, fixtures and upstream pins remain unchanged.
+
+Commands passed locally:
+
+```sh
+python3 tools/verify_protocol.py
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug
+graphify update .
+```
+
+- 110 tests passed, no failures, errors or skipped tests. Both lint reports contain zero issues.
+- All 33 non-merge corpus glyphs produce their expected portable maneuvers at 54 pixels and
+  resampled sizes 48, 64, 72, 96 and 108 pixels. Five merge glyphs remain unsupported at every
+  tested size. All 586 recognition masks are retained, including 84 rejecting merge references.
+- Corpus and original field-capture checksums are verified. The import tool reproduces all 44
+  generated files byte-for-byte from the pinned Git commits without a Maps APK.
+- Native bitmap/listener tests cover image-only direction changes, fresh observation timestamps,
+  selected-notification priority, unknown replacement images, removal, revocation, listener loss,
+  ABRP isolation and Android 8 text-only fallback.
+- Parser/wire tests cover conflicting evidence, missing maneuver distance, roundabout circulation
+  plus explicit exit, and rejection of absent, fractional, grouped, out-of-range or contradictory
+  exit numbers. No image angle supplies an ordinal exit.
+- APK metadata and signature verified: `io.github.kiroha.dashcast.satellite.debug`, 0.3.0-dev (4),
+  same independent Android Debug certificate as 0.2.0-dev. Test images, TLS fixtures and source
+  files are absent from the APK. No new runtime permission or dependency was introduced.
+
+APK: 3,761,485 bytes; SHA-256:
+`70d9851e3cf1d271c02e2972a5b83ebbb7de1c5386e1525af0be5d223c82ad46`.
+
+Physical validation of the actual Maps version on the Tbox and the vehicle's HUD/cluster is still
+pending. Corpus recognition does not prove coverage of every Maps rendering. Under unchanged v1,
+merge glyphs and roundabouts without an explicit exit remain unsupported. ABRP remains text-only;
+video capture is not implemented.

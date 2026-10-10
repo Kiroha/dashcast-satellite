@@ -26,7 +26,7 @@
     <string name="source_section">2. Guidance source</string>
     <string name="source_maps">Google Maps</string>
     <string name="source_abrp">ABRP · experimental</string>
-    <string name="source_help">Only clear, readable guidance is sent. Unrecognized icons and ambiguous directions are not supported.</string>
+    <string name="source_help">Maps can use recognized notification arrows or explicit text. Roundabouts require an explicit exit number. Unknown or conflicting guidance is not sent. ABRP requires explicit text.</string>
     <string name="grant_access">Allow notification access</string>
     <string name="notification_access_label">DashCast Satellite · guidance reader</string>
     <string name="access_on">Notification access granted</string>

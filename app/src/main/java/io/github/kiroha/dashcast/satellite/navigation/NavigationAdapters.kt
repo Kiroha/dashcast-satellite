@@ -11,7 +11,7 @@ interface NavigationAdapter {
     fun parse(notification: NavigationNotification): ParseResult
 }
 
-/** Resource names can carry Maps maneuvers. Raster/URI icons are deliberately not recognized. */
+/** Maps guidance combines explicit text, resource names and audited notification glyphs. */
 class MapsAdapter : NavigationAdapter {
     override fun accepts(packageName: String): Boolean = packageName in PACKAGES
 
@@ -78,7 +78,10 @@ internal object ConservativeGuidanceParser {
     )
     private val roundaboutWords = Regex("roundabout|rond-point|kreisverkehr", RegexOption.IGNORE_CASE)
     private val unsupportedEvent = Regex(
-        "^(?:take the exit|exit|prenez la sortie|sortie|ausfahrt|merge|rejoignez|tollbooth|péage|tunnel)(?![\\p{L}\\p{N}])",
+        "^(?:merge|rejoignez|tollbooth|péage|tunnel)(?![\\p{L}\\p{N}])",
+    )
+    private val exitEvent = Regex(
+        "^(?:take the exit|exit|prenez la sortie|sortie|ausfahrt)(?![\\p{L}\\p{N}])",
     )
     private val unavailableSource = Regex(
         "searching for gps|gps signal lost|recalculating|recalcul du trajet|signal gps perdu|navigation paused",
@@ -93,6 +96,9 @@ internal object ConservativeGuidanceParser {
         "arrow_right" to "right", "arrow_left" to "left",
         "straight" to "straight", "destination" to "destination", "arrive" to "destination",
     )
+    private val imageManeuvers = setOf("left", "right", "slight_left", "slight_right",
+        "sharp_left", "sharp_right", "uturn_left", "uturn_right", "straight", "destination",
+        "roundabout_cw", "roundabout_ccw")
 
     fun parse(notification: NavigationNotification, acceptMapsResourceNames: Boolean): ParseResult {
         val lines = listOf(notification.title, notification.text, notification.bigText)
@@ -105,18 +111,24 @@ internal object ConservativeGuidanceParser {
         val textDirections = stripped.mapNotNull(::textManeuver).distinct()
         if (textDirections.size > 1) return ParseResult.Unsupported
         val iconDirection = if (acceptMapsResourceNames) resourceManeuver(notification.iconResourceName) else null
+        val imageDirection = if (acceptMapsResourceNames) notification.imageManeuver else null
+        if (imageDirection != null && imageDirection !in imageManeuvers) return ParseResult.Unsupported
         val textDirection = textDirections.singleOrNull()
-        if (iconDirection != null && textDirection != null && iconDirection != textDirection) return ParseResult.Unsupported
+        val directions = listOfNotNull(iconDirection, imageDirection, textDirection).distinct()
+        if (directions.size != 1) return ParseResult.Unsupported
 
         val hasRoundabout = lines.any(roundaboutWords::containsMatchIn)
-        val maneuver = iconDirection ?: textDirection ?: return ParseResult.Unsupported
+        val maneuver = directions.single()
+        if (stripped.any(exitEvent::containsMatchIn) && !maneuver.startsWith("roundabout_")) {
+            return ParseResult.Unsupported
+        }
         if (hasRoundabout && !maneuver.startsWith("roundabout_")) return ParseResult.Unsupported
         // An unlabelled U-turn must not become a normal left/right merely because of an icon name.
         if (stripped.any { "u-turn" in it || "demi-tour" in it } && !maneuver.startsWith("uturn_")) {
             return ParseResult.Unsupported
         }
         val exit = if (maneuver.startsWith("roundabout_")) {
-            lines.firstNotNullOfOrNull(NavTextParsers::roundaboutExit) ?: return ParseResult.Unsupported
+            NavTextParsers.roundaboutExit(lines.joinToString("\n")) ?: return ParseResult.Unsupported
         } else null
 
         // Do not borrow a route-summary distance from subText, nor arbitrary text containing a
@@ -124,7 +136,8 @@ internal object ConservativeGuidanceParser {
         val meters = lines.firstNotNullOfOrNull { line ->
             val strippedLine = distancePrefix.replaceFirst(line.lowercase(Locale.ROOT), "").trim()
             val isDistanceOnly = strippedLine.isEmpty() && distancePrefix.containsMatchIn(line)
-            val isInstruction = textManeuver(strippedLine) != null || roundaboutWords.containsMatchIn(line)
+            val isInstruction = textManeuver(strippedLine) != null || roundaboutWords.containsMatchIn(line) ||
+                (maneuver.startsWith("roundabout_") && NavTextParsers.roundaboutExit(line) != null)
             if (isDistanceOnly || isInstruction) NavTextParsers.meters(line) else null
         } ?: return ParseResult.Unsupported
 

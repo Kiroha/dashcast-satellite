@@ -7,8 +7,9 @@ DashCast receiver over the local network. First device to validate: **Carlinkit 
 (reported by the user; no physical testing performed in this session).
 
 This repository contains the foundation for the first milestone. Vehicle compatibility has not
-yet been validated. Maps and ABRP may display maneuvers only as images; these remain explicitly
-unsupported. The second milestone will add video capture.
+yet been validated. On Android 9 or newer, Maps notification arrows can be recognized from a bounded,
+audited reference set; unknown or ambiguous images remain unsupported. ABRP still requires explicit
+text guidance. The second milestone will add video capture.
 
 ## Getting started
 
@@ -85,6 +86,13 @@ The optional [local pairing transfer](protocol/pairing/v1/PAIRING_V1.md) has sep
 a separate receiver pin. It transfers the existing profile using a temporary code and authenticated
 encryption; the normal WSS certificate pin remains mandatory.
 Parser provenance is documented in [PARSER_PROVENANCE.md](docs/PARSER_PROVENANCE.md).
+
+Maps image recognition is adapted separately from receiver commit
+`3565221625ef0b3b0e039d7662abff0f5f39aca6`. It emits portable v1 maneuver names, never vehicle icon
+IDs. The image can identify roundabout circulation, but the same notification must explicitly
+provide an exit from 1 to 10. Merge glyphs and ambiguous matches remain unsupported under v1.
+Only the existing portable guidance fields are sent; notification images stay on the box.
+Android 8 uses text parsing only.
 
 The satellite contains no OEM output, CAN dependency, ADB, vehicle API, or platform key.
 Support logs never receive tokens, SDP, notifications, or route text.

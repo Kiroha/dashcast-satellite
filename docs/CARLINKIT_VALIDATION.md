@@ -40,6 +40,10 @@ reproducing the relevant fields, together with the source app's version and lang
 | Revoked profile / different certificate | No guidance accepted; pairing required again | Pending |
 | Socket connected, no navigation | Inactive source, no old turn | Pending |
 | Maps with explicit guidance | Correct maneuver and distance on the HUD/cluster | Pending |
+| Maps with a recognized notification arrow and distance, without a written direction | Portable maneuver sent; correct direction and distance on the HUD/cluster | Pending |
+| Maps changes only its notification arrow | Direction changes on the next fresh observation, with no cached-image replay | Pending |
+| Recognized roundabout plus an explicit exit 1–10 | Observed circulation and exit transmitted together | Pending |
+| Roundabout without an exit, conflicting directions, or merge glyph | Unsupported under v1; previous guidance cleared | Pending |
 | Maps with an unrecognized image only / ambiguous guidance | Unsupported state, no invented direction | Pending |
 | ABRP | Active only when observable guidance is usable | Pending |
 | Switch Maps ↔ ABRP | Previous source stopped, no mixed data | Pending |

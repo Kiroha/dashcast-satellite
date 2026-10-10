@@ -96,29 +96,47 @@ class NavigationNotificationListenerService : NotificationListenerService() {
 
     private fun readCurrentNotifications(): List<NavigationNotification> {
         // This method is called only after onListenerConnected and while transmission is enabled.
+        val source = NavigationObservationBus.configuration.source
         val current = activeNotifications ?: throw IllegalStateException("Source snapshot unavailable")
-        return current.asSequence().filter { acceptsSelectedSource(it.packageName) && it.key != excludedKey }
-            .take(MAX_NOTIFICATIONS).map { sbn ->
-                val notification = sbn.notification
-                val extras = notification.extras
-                fun field(key: String): String = extras?.getCharSequence(key)?.take(MAX_TEXT_UNITS)?.toString().orEmpty()
-                NavigationNotification(
-                    key = sbn.key,
-                    packageName = sbn.packageName,
-                    ongoing = notification.flags and Notification.FLAG_ONGOING_EVENT != 0,
-                    navigationCategory = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
-                        notification.category == Notification.CATEGORY_NAVIGATION,
-                    postTime = sbn.postTime,
-                    title = field(Notification.EXTRA_TITLE),
-                    text = field(Notification.EXTRA_TEXT),
-                    bigText = field(Notification.EXTRA_BIG_TEXT),
-                    subText = field(Notification.EXTRA_SUB_TEXT),
-                    iconResourceName = resourceName(sbn.packageName, notification.smallIcon),
-                )
-            }.toList()
+        val notifications = current.asSequence()
+            .filter { acceptsSelectedSource(it.packageName, source) && it.key != excludedKey }
+            .take(MAX_NOTIFICATIONS).toList()
+        val observations = notifications.map { sbn ->
+            val notification = sbn.notification
+            val extras = notification.extras
+            fun field(key: String): String = extras?.getCharSequence(key)?.take(MAX_TEXT_UNITS)?.toString().orEmpty()
+            NavigationNotification(
+                key = sbn.key,
+                packageName = sbn.packageName,
+                ongoing = notification.flags and Notification.FLAG_ONGOING_EVENT != 0,
+                navigationCategory = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+                    notification.category == Notification.CATEGORY_NAVIGATION,
+                postTime = sbn.postTime,
+                title = field(Notification.EXTRA_TITLE),
+                text = field(Notification.EXTRA_TEXT),
+                bigText = field(Notification.EXTRA_BIG_TEXT),
+                subText = field(Notification.EXTRA_SUB_TEXT),
+                iconResourceName = resourceName(sbn.packageName, notification.smallIcon),
+            )
+        }.toMutableList()
+        if (source == NavigationSource.MAPS && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // Decode only the same active candidate that the evaluator will select. Its large
+            // icon is read again from this OS snapshot, even when notification text is unchanged.
+            val selected = observations.indices.asSequence()
+                .filter { observations[it].ongoing || observations[it].navigationCategory }
+                .sortedWith(compareByDescending<Int> { observations[it].navigationCategory }
+                    .thenByDescending { observations[it].postTime })
+                .firstOrNull()
+            if (selected != null) {
+                val maneuver = MapsManeuverImage.read(this, notifications[selected].notification.getLargeIcon())
+                observations[selected] = observations[selected].copy(imageManeuver = maneuver)
+            }
+        }
+        return observations
     }
 
-    private fun acceptsSelectedSource(packageName: String): Boolean = when (NavigationObservationBus.configuration.source) {
+    private fun acceptsSelectedSource(packageName: String,
+        source: NavigationSource = NavigationObservationBus.configuration.source): Boolean = when (source) {
         NavigationSource.MAPS -> packageName in MapsAdapter.PACKAGES
         NavigationSource.ABRP -> packageName == AbrpAdapter.PACKAGE
     }

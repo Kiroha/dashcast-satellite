@@ -30,10 +30,40 @@ need source fixtures. Regex/unit/digit and guidance-policy cases derive from the
 `NavTextParsersCharacterizationTest`, `ArabicNavParsingTest` and `NavGuidancePolicyTest`; the tests here
 exercise the extracted conversion itself, source disappearance, unavailable reads and permissions.
 
-Maps resource-name lookup supports resource icons only. A bitmap/URI image, a generic icon, an
-unrecognized maneuver, or a roundabout without observed circulation plus exit is unsupported.
-No pixel matching, OCR, screen scraping or default turn is implemented.
-Android 8.0/8.1 use text parsing only because public Icon resource accessors require Android 9.
+## Maps notification images
+
+Application 0.3.0-dev adapts `MapsManeuverImage.kt`, `MapsManeuverReferences.kt` and their bitmap
+tests from local DashCast commit `3565221625ef0b3b0e039d7662abff0f5f39aca6`.
+The original capture-based left/right matcher was introduced by
+`a26fe1ac20b8fd8be272332e7a1f4f92e11f80f9`. Code retains the upstream MIT attribution; the independent
+test images retain their source provenance and are not reclassified as original MIT artwork.
+
+The corpus derives from Maps/Morphe `26.33.02.961351034`, APK SHA-256
+`5fa52cfb6f6dfe10efb0b2961a1569d07efaa9615f2de8df1de80a8dd87e05e5`.
+Upstream audited the notification SVG rendering path and independently rasterized fixtures using
+CairoSVG 2.8.2. It includes an earlier non-location arrow capture. Source/PNG hashes are retained
+with the test fixtures. Neither the Maps APK nor decompiled source is packaged in Satellite.
+`tools/navigation/import_maps_corpus.py` imports the reviewed masks and fixtures from that pinned
+Git commit, verifies source hashes, and translates labels without introducing OEM constants.
+
+Only the selected active Maps notification's large bitmap or resource icon is inspected. Input
+dimensions are bounded to 8–256 pixels and coverage/emphasis masks to 32×32. The upstream error
+threshold (0.22), minimum competing-label margin (0.15), aspect tolerance (0.08), and narrow topology
+halo are preserved. URI, adaptive, malformed, coloured, empty and ambiguous images are unsupported;
+the listener never opens URI images, retains source bitmaps or logs their contents. Android 8.0/8.1
+use text parsing only because public Icon type/resource accessors require Android 9.
+
+Satellite emits portable v1 maneuvers instead of upstream OEM codes. Roundabout images supply
+circulation only: a consistent explicit exit 1–10 must be present in that same notification.
+An angle is never converted into an exit number. Missing, fractional, contradictory or out-of-range
+exits remain unsupported. Merge masks remain rejecting competitors because v1 has no merge maneuver;
+visually ambiguous images must not become a turn. Explicit resource, image and text directions must
+agree. An unknown image may fall back to independently valid explicit text. Maneuver distance still
+comes from an instruction or a distance-only field, never from route-summary text or a road number.
+
+Recognition is bounded notification-glyph matching, not screen capture or OCR. It adds no permission,
+runtime dependency on a Maps APK, vehicle API, image upload or change to protocol v1. Corpus tests
+validate those reference renderings, not every Maps version or physical display on the Carlinkit.
 
 ABRP is a separate text adapter for `com.iternio.abrpapp`, the package published on
 [Google Play](https://play.google.com/store/apps/details?id=com.iternio.abrpapp).

@@ -30,7 +30,7 @@ internal object NavTextParsers {
         RegexOption.IGNORE_CASE,
     )
     private val roundaboutExit = Regex(
-        "(?:(\\d+)(?:st|nd|rd|th|er|e|ème)?[\\s\\u00A0]+(?:exit|sortie)|(?:exit|sortie)[\\s\\u00A0]+(\\d+))",
+        "(?<![\\p{L}\\p{N}.,+−-])(?:([+−-]?\\d+(?:[.,]\\d+)*)(?:st|nd|rd|th|er|e|ème)?[\\s\\u00A0]+(?:exit|sortie)(?![\\p{L}\\p{N}])|(?:exit|sortie)[\\s\\u00A0]+([+−-]?\\d[\\p{L}\\p{N}.,+−-]*))",
         RegexOption.IGNORE_CASE,
     )
     private val road = Regex(
@@ -91,9 +91,21 @@ internal object NavTextParsers {
     }
 
     fun roundaboutExit(raw: String): Int? {
-        val match = roundaboutExit.find(normalizeDigits(raw)) ?: return null
-        return (match.groups[1]?.value ?: match.groups[2]?.value)
-            ?.toIntOrNull()?.takeIf { it in 1..10 }
+        // Repeated title/bigText may agree, but two exits or an out-of-range exit are ambiguous.
+        val normalized = normalizeDigits(raw)
+        val matches = roundaboutExit.findAll(normalized).toList()
+        fun groupingSpace(c: Char) = c == ' ' || c == '\t' || c == '\u00a0' || c == '\u202f'
+        // Never extract a valid-looking suffix/prefix from a grouped ordinal such as 1 003.
+        // Newlines separate title/text fields and may repeat the same complete instruction.
+        if (matches.any { match ->
+                normalized.substring(0, match.range.first).trimEnd(::groupingSpace).lastOrNull()?.isDigit() == true ||
+                    normalized.substring(match.range.last + 1).trimStart(::groupingSpace).firstOrNull()?.isDigit() == true
+            }) return null
+        val exits = matches.map { match ->
+            (match.groups[1]?.value ?: match.groups[2]?.value)?.trimEnd('.', ',')?.toIntOrNull()
+        }.toList()
+        if (exits.isEmpty() || exits.any { it == null || it !in 1..10 }) return null
+        return exits.distinct().singleOrNull()
     }
 
     fun roadName(raw: String): String? = road.find(raw)?.groupValues?.get(1)?.trim()

@@ -42,6 +42,8 @@ data class NavigationNotification(
     val bigText: String = "",
     val subText: String = "",
     val iconResourceName: String? = null,
+    /** Audited Maps large-icon result from this OS snapshot, never a cached maneuver. */
+    val imageManeuver: String? = null,
 ) {
     override fun toString(): String = "NavigationNotification(redacted)"
 }

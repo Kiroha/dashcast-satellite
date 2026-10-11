@@ -40,9 +40,9 @@
         <CheckBox android:id="@+id/restart_after_boot" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/restart_after_boot" />
         <TextView style="@style/Body" android:text="@string/receiver_help" />
+        <Button android:id="@+id/video_projection" style="@style/Action" android:text="@string/video_title" />
         <TextView style="@style/SectionTitle" android:text="@string/device_section" />
         <Button android:id="@+id/updates" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/updates_title" />
         <TextView android:id="@+id/device_info" style="@style/Body" android:textIsSelectable="true" />
-        <TextView style="@style/Body" android:text="@string/video_pending" android:layout_marginTop="16dp" />
     </LinearLayout>
 </ScrollView>

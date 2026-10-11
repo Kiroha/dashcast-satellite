@@ -2,6 +2,11 @@ package io.github.kiroha.dashcast.satellite.transport
 
 import android.app.Application
 import android.net.ConnectivityManager
+import android.net.LinkAddress
+import io.github.kiroha.dashcast.satellite.capture.VideoControlBridge
+import io.github.kiroha.dashcast.satellite.capture.VideoSignallingQueue
+import java.util.concurrent.atomic.AtomicBoolean
+import io.github.kiroha.dashcast.satellite.navigation.Observation
 import android.net.IpPrefix
 import android.net.LinkProperties
 import android.net.NetworkCapabilities
@@ -299,6 +304,93 @@ class SatelliteTransportTest {
         }
     }
 
+
+    @Test fun `video cancellation before offer transmission preserves authenticated guidance`() {
+        configureLan { Socket() }
+        val manager = app.getSystemService(ConnectivityManager::class.java)
+        val properties = manager.getLinkProperties(manager.allNetworks.single())!!
+        val address = ReflectionHelpers.callConstructor(LinkAddress::class.java,
+            ClassParameter.from(InetAddress::class.java, InetAddress.getByName("127.0.0.1")),
+            ClassParameter.from(Int::class.javaPrimitiveType, 8))
+        ReflectionHelpers.callInstanceMethod<Boolean>(properties, "addLinkAddress", ClassParameter.from(LinkAddress::class.java, address))
+        shadowOf(manager).setLinkProperties(manager.allNetworks.single(), properties)
+        val connected = CountDownLatch(1); val stopped = CountDownLatch(1)
+        val now = AtomicLong(100)
+        val server = TestReceiver(true)
+        val transport = SatelliteTransport(app, {
+            if (it.state == TransportState.CONNECTED) connected.countDown()
+            if (it.state == TransportState.STOPPED) stopped.countDown()
+        }, now::get)
+        try {
+            server.startAndAwait(); transport.start(profile(server.port, listOf("127.0.0.1")))
+            assertTrue(connected.await(5, TimeUnit.SECONDS))
+            val worker = ReflectionHelpers.getField<ExecutorService>(transport, "worker")
+            worker.submit {}.get(3, TimeUnit.SECONDS)
+            val link = VideoControlBridge.link!!
+            worker.submit {
+                val queue = ReflectionHelpers.getField<VideoSignallingQueue>(transport, "videoQueue")
+                queue.offer(JSONObject().put("type", "video.offer").put("negotiation", "never-offered")
+                    .put("sdp", "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n")) {}
+                queue.offer(JSONObject().put("type", "video.ice").put("negotiation", "never-offered")
+                    .put("candidate", "candidate:1 1 udp 1 192.168.49.2 1234 typ host")
+                    .put("sdpMid", "0").put("sdpMLineIndex", 0)) {}
+                queue.cancel("never-offered") // Same serial worker turn, before the next tick.
+            }.get(3, TimeUnit.SECONDS)
+            Thread.sleep(200)
+            assertFalse(server.received.any { JSONObject(it).optString("type").startsWith("video.") })
+            transport.offer(Observation.Stop(now.get()))
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (server.received.none { JSONObject(it).optString("type") == "navigation.stop" } && System.nanoTime() < deadline) Thread.sleep(10)
+            assertTrue(server.received.any { JSONObject(it).optString("type") == "navigation.stop" })
+            assertEquals("CONNECTED", ReflectionHelpers.getField<Any>(transport, "lastStatus").let {
+                (it as TransportStatus).state.name })
+        } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)); server.stopQuietly() }
+    }
+
+    @Test fun `video offer advances alongside continuous guidance and later stop names a sent offer`() {
+        configureLan { Socket() }
+        val manager = app.getSystemService(ConnectivityManager::class.java)
+        val properties = manager.getLinkProperties(manager.allNetworks.single())!!
+        val address = ReflectionHelpers.callConstructor(LinkAddress::class.java,
+            ClassParameter.from(InetAddress::class.java, InetAddress.getByName("127.0.0.1")),
+            ClassParameter.from(Int::class.javaPrimitiveType, 8))
+        ReflectionHelpers.callInstanceMethod<Boolean>(properties, "addLinkAddress", ClassParameter.from(LinkAddress::class.java, address))
+        shadowOf(manager).setLinkProperties(manager.allNetworks.single(), properties)
+        val connected = CountDownLatch(1); val stopped = CountDownLatch(1); val sent = CountDownLatch(1)
+        val now = AtomicLong(100)
+        val server = TestReceiver(true)
+        val transport = SatelliteTransport(app, {
+            if (it.state == TransportState.CONNECTED) connected.countDown()
+            if (it.state == TransportState.STOPPED) stopped.countDown()
+        }, now::get)
+        try {
+            server.startAndAwait(); transport.start(profile(server.port, listOf("127.0.0.1")))
+            assertTrue(connected.await(5, TimeUnit.SECONDS))
+            val worker = ReflectionHelpers.getField<ExecutorService>(transport, "worker")
+            worker.submit {}.get(3, TimeUnit.SECONDS)
+            val link = VideoControlBridge.link!!
+            val flooding = AtomicBoolean(true)
+            val flood = Thread {
+                while (flooding.get()) { transport.offer(Observation.Stop(now.get())); Thread.sleep(5) }
+            }.apply { start() }
+            try {
+                val started = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+                while (server.received.none { JSONObject(it).optString("type") == "navigation.stop" } && System.nanoTime() < started) Thread.sleep(10)
+                assertTrue(server.received.any { JSONObject(it).optString("type") == "navigation.stop" })
+                link.send(JSONObject().put("type", "video.offer").put("negotiation", "offer-1")
+                    .put("sdp", "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n")) { if(it) sent.countDown() }
+                assertTrue("Video offer starved behind continuous guidance", sent.await(2, TimeUnit.SECONDS))
+                assertTrue("Producer stopped before assertion", flood.isAlive && flooding.get())
+            } finally { flooding.set(false); flood.join() }
+            link.endNegotiation("offer-1")
+            worker.submit {}.get(3, TimeUnit.SECONDS)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (server.received.none { JSONObject(it).optString("type") == "video.stop" } && System.nanoTime() < deadline) Thread.sleep(10)
+            assertTrue(server.received.any { JSONObject(it).optString("type") == "navigation.stop" })
+            assertTrue(server.received.any { JSONObject(it).optString("type") == "video.stop" })
+        } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)); server.stopQuietly() }
+    }
+
     @Suppress("DEPRECATION")
     private fun configureLan(create: () -> Socket) {
         val manager = app.getSystemService(ConnectivityManager::class.java)
@@ -331,6 +423,7 @@ class SatelliteTransportTest {
         WebSocketServer(InetSocketAddress("127.0.0.1", 0), 1) {
         private val started = CountDownLatch(1)
         val hello = AtomicReference<String>()
+        val received = CopyOnWriteArrayList<String>()
         val requestedSubprotocol = AtomicReference<String>()
         val errorType = AtomicReference<String>()
         init {
@@ -344,6 +437,7 @@ class SatelliteTransportTest {
             requestedSubprotocol.set(handshake.getFieldValue("Sec-WebSocket-Protocol"))
         }
         override fun onMessage(connection: WebSocket, message: String) {
+            received.add(message)
             if (JSONObject(message).getString("type") == "hello") {
                 hello.set(message)
                 if (sendWelcome) connection.send("""{"type":"welcome","version":1,"session":"test-session","navigationTimeoutMs":6000,"remoteGuidance":true,"videoTransport":"webrtc"}""")

@@ -113,6 +113,9 @@ class MainActivity : Activity() {
             isChecked = settings.restartAfterBoot
             setOnCheckedChangeListener { _, checked -> settings.restartAfterBoot = checked }
         }
+        findViewById<Button>(R.id.video_projection).setOnClickListener {
+            startActivity(Intent(this, io.github.kiroha.dashcast.satellite.capture.VideoCaptureActivity::class.java))
+        }
         findViewById<Button>(R.id.updates).setOnClickListener {
             startActivity(Intent(this, io.github.kiroha.dashcast.satellite.update.UpdatesActivity::class.java))
         }

@@ -4,12 +4,13 @@ Repository: [Kiroha/dashcast-satellite](https://github.com/Kiroha/dashcast-satel
 
 An independent Android app that observes navigation guidance on the box and sends it to the
 DashCast receiver over the local network. First device to validate: **Carlinkit Tbox Ultra 1, Android 15**
-(reported by the user; no physical testing performed in this session).
+(user-tested guidance on October 11, 2026).
 
-This repository contains the foundation for the first milestone. Vehicle compatibility has not
-yet been validated. On Android 9 or newer, Maps notification arrows can be recognized from a bounded,
+The user confirmed synchronized guidance from official Google Maps on this box to DashCast on
+DiLink 3 / Android 10, with no perceptible delay in that test. Stop/reconnect/reboot acceptance and
+measured latency remain pending. On Android 9 or newer, Maps notification arrows can be recognized from a bounded,
 audited reference set; unknown or ambiguous images remain unsupported. ABRP still requires explicit
-text guidance. The second milestone will add video capture.
+text guidance. The experimental second milestone adds user-consented video capture; vehicle video is not yet validated.
 
 ## Getting started
 
@@ -98,7 +99,8 @@ One `app` module, with the `pairing`, `transport`, `navigation`, and `capture` p
 - `navigation`: an Android listener and separate Maps/ABRP adapters, explicit source selection,
   and a stop when the source is lost or guidance is unusable. Active system notifications are
   observed again every second; no timer makes old cached content appear fresh.
-- `capture`: reserved for the second milestone; no capture code is enabled.
+- `capture`: a consent-driven MediaProjection foreground service and pinned native hardware WebRTC
+  sender; one LAN video track, no automatic capture resume or remote input.
 
 The [v1 contract](protocol/v1/PROTOCOL_V1.md) and its fixtures are copied unchanged from
 `Kiroha/byd-dashcast` at commit `2ec7d544044838ca5de365adf954d695779dd172`.
@@ -121,12 +123,13 @@ Support logs never receive tokens, SDP, notifications, or route text.
 
 ## Second milestone
 
-After standalone guidance is validated: MediaProjection with user consent, a dedicated foreground
-service, and a maintained, versioned native WebRTC sender. One video track, local ICE, WSS v1
-signaling, modest resolution/frame rate, and measurements of latency, load, and Overdrive frame drops.
-Test the installed receiver WebView before considering a native receiver and its APK/ABI cost.
-Capture does not create an independent invisible second display or allow input injection.
-Video restart without consent is not promised.
+User-consented MediaProjection, app launch on the external box and a native WebRTC sender are
+available experimentally. The receiver still uses its installed WebView; capture/encoding remain
+on the companion. Start at 960×540 / 15 fps / 1.5 Mbps and measure car decoding/load alongside
+Overdrive before claiming a CPU/GPU reduction. See [setup and performance gates](docs/EXTERNAL_VIDEO.md)
+and [native dependency pin/ABI impact](docs/WEBRTC_DEPENDENCY.md).
+Capture does not create an independent invisible display or authorize input injection.
+Video always requires fresh consent after its capture session stops.
 
 Android references used: [connectedDevice services](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device),
 [listener lifecycle](https://developer.android.com/reference/android/service/notification/NotificationListenerService),

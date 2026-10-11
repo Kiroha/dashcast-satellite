@@ -65,6 +65,8 @@ dependencies {
     // Vetted password-authenticated exchange permits a six-digit code without offline guessing.
     implementation 'org.bouncycastle:bcprov-jdk15to18:1.86'
     implementation 'org.java-websocket:Java-WebSocket:1.6.0'
+    // Maintained native sender; receiver uses its installed WebView instead.
+    implementation 'io.github.webrtc-sdk:android:150.7871.01'
     // Do not send library diagnostics to a log backend: frame payloads are private.
     runtimeOnly 'org.slf4j:slf4j-nop:2.0.6'
     testImplementation 'junit:junit:4.13.2'
@@ -73,3 +75,25 @@ dependencies {
         exclude group: 'org.bouncycastle', module: 'bcprov-jdk18on'
     }
 }
+
+// Refuse a changed native binary under the reviewed coordinate in local builds and CI.
+tasks.register('verifyWebRtcArchive') {
+    doLast {
+        def artifact = configurations.debugRuntimeClasspath.resolvedConfiguration.resolvedArtifacts.find {
+            it.moduleVersion.id.group == 'io.github.webrtc-sdk' && it.name == 'android'
+        }
+        if (artifact == null || artifact.moduleVersion.id.version != '150.7871.01') {
+            throw new GradleException('Reviewed native WebRTC archive unavailable.')
+        }
+        def digest = java.security.MessageDigest.getInstance('SHA-256')
+        artifact.file.withInputStream { stream ->
+            byte[] buffer = new byte[8192]
+            int count
+            while ((count = stream.read(buffer)) > 0) digest.update(buffer, 0, count)
+        }
+        if (digest.digest().encodeHex().toString() != '0a1627b1a48c2bc17d9a40d62fc47bd45166f44a311e95917f147c402de379b0') {
+            throw new GradleException('Native WebRTC archive differs from the reviewed SHA-256.')
+        }
+    }
+}
+tasks.named('preBuild') { dependsOn 'verifyWebRtcArchive' }

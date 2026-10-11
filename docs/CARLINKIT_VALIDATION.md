@@ -1,6 +1,6 @@
 # Vehicle validation
 
-Status: **partial user feedback; guidance display still pending validation**. A build and JVM tests do not prove correct
+Status: **user-confirmed Google Maps guidance; video and recovery validation pending**. A build and JVM tests do not prove correct
 physical display output or correct operation of AndroidKeyStore storage/TLS on the box.
 
 ## Initial device record
@@ -60,6 +60,14 @@ pairing failure labels with explicit retry. No exact cause for the vehicle's pre
 failure can be inferred from the screenshots alone. Retest the fixed dialog and record its
 failure category if needed. Physical pairing, route guidance and reconnection remain pending.
 
+## Confirmed user guidance test — October 11, 2026
+
+The user confirmed official Google Maps guidance on Tbox Ultra 1 / Android 15 and DashCast on
+DiLink 3 / Android 10, synchronized with no perceptible lag during the test. The preceding screenshot
+shows authenticated Satellite connected and the guidance option enabled. This is physical user
+feedback, not a measured latency benchmark or proof of every maneuver/output/recovery combination.
+Route-stop clearing, reconnect, reboot and overnight scenarios remain pending.
+
 ## First milestone: guidance
 
 | Test | Expected result | Observed |
@@ -98,9 +106,9 @@ guidance after six seconds, including source age; detected loss must trigger a s
 A navigation notification incorrectly left active by a source app is an observation limitation
 to investigate on the device, not proof of actual route progress.
 
-## Second milestone: video (not included in this APK)
+## Second milestone: video (experimental)
 
-After guidance is validated: capture consent, map displayed on the cluster, viewer closure,
+Follow [EXTERNAL_VIDEO.md](EXTERNAL_VIDEO.md): capture consent, map displayed on the cluster, viewer closure,
 capture stop, reconnection, and renewed consent when required. Record the codec, resolution/frame
 rate, screen-to-cluster latency, CPU/GPU, temperature, and Overdrive frame drops.
 Final acceptance requires the actual vehicle, sources that stop correctly, and normal DashCast

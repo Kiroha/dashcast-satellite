@@ -6,10 +6,12 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Resource-icon parsing reads resources only from these explicitly supported sources. -->
     <queries>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
         <package android:name="com.google.android.apps.maps" />
         <package android:name="app.revanced.android.apps.maps" />
         <package android:name="app.morphe.android.apps.maps" />
@@ -30,6 +32,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".capture.VideoCaptureActivity" android:exported="false" />
+        <service android:name=".capture.VideoCaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />
         <activity android:name=".update.UpdatesActivity" android:exported="false" />
         <provider android:name=".update.SatelliteUpdateFileProvider"
             android:authorities="${applicationId}.updates" android:exported="false"

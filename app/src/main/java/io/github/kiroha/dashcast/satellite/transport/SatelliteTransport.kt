@@ -6,6 +6,12 @@ import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import io.github.kiroha.dashcast.satellite.capture.VideoControlBridge
+import io.github.kiroha.dashcast.satellite.capture.VideoLink
+import io.github.kiroha.dashcast.satellite.capture.VideoLan
+import io.github.kiroha.dashcast.satellite.capture.VideoPolicy
+import io.github.kiroha.dashcast.satellite.capture.VideoSignallingQueue
+import java.util.concurrent.atomic.AtomicLong
 import android.os.SystemClock
 import io.github.kiroha.dashcast.satellite.navigation.Observation
 import io.github.kiroha.dashcast.satellite.pairing.PairingProfile
@@ -57,6 +63,8 @@ class SatelliteTransport internal constructor(
     private var selectedNetwork: Network? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var authenticated = false
+    private var videoLink: VideoLink? = null
+    private val videoQueue = VideoSignallingQueue()
     private var remoteGuidance = false
     private var deadline = 0L
     private var connectedAt = 0L
@@ -142,6 +150,11 @@ class SatelliteTransport internal constructor(
                 if (socket == null) nextAttempt = 0
             }
             override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = dispatch {
+                val videoLan = videoLink?.lan
+                if (network == selectedNetwork && videoLan != null &&
+                    (properties.interfaceName != videoLan.interfaceName ||
+                    properties.linkAddresses.mapNotNull { it.address.hostAddress }.filter {
+                        PairingProfile.numericLocalIpv4Address(it) != null }.toSet() != videoLan.addresses)) fail("lan_lost")
                 if (network in networks && socket == null) nextAttempt = 0
             }
             override fun onLost(network: Network) = dispatch {
@@ -191,7 +204,14 @@ class SatelliteTransport internal constructor(
             return
         }
         // A single pending value replaces older unsent observations. Source age is computed here.
-        latest.next(now)?.let { current.send(it) }
+        val guidance = latest.next(now)
+        if (guidance != null) current.send(guidance)
+        // One bounded video signal can follow a guidance snapshot in the same tick. Continuous
+        // navigation ingress must not starve SDP/ICE; heartbeat retains its own deadline above.
+        videoQueue.next()?.let { pending ->
+            current.send(pending.text)
+            videoQueue.sent(pending)
+        }
     }
 
     private fun connect(now: Long) {
@@ -288,8 +308,36 @@ class SatelliteTransport internal constructor(
                 endpoints.connected()
                 lastFailureDetail = null
                 publish(TransportState.CONNECTED)
+                val selected = selectedNetwork
+                val properties = selected?.let { connectivity.getLinkProperties(it) }
+                val addresses = properties?.linkAddresses.orEmpty().mapNotNull { it.address.hostAddress }
+                    .filter { PairingProfile.numericLocalIpv4Address(it) != null }.toSet()
+                val name = properties?.interfaceName
+                if (selected != null && !name.isNullOrBlank() && addresses.isNotEmpty()) {
+                    val ownerSocket = socket
+                    val remote = ownerSocket?.socket?.inetAddress?.hostAddress
+                    require(remote != null && PairingProfile.numericLocalIpv4Address(remote) != null)
+                    val generation = VIDEO_GENERATIONS.incrementAndGet()
+                    val link = VideoLink(generation, VideoLan(selected, name, addresses,
+                        connectivity.getNetworkCapabilities(selected)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true, remote), terminate = { negotiation ->
+                        dispatch {
+                            if (authenticated && socket === ownerSocket && videoLink?.generation == generation) {
+                                videoQueue.cancel(negotiation)
+                            }
+                        }
+                    }) { signal, complete ->
+                        dispatch {
+                            if (!authenticated || socket !== ownerSocket || videoLink?.generation != generation ||
+                                !VideoPolicy.validWire(signal) || !videoQueue.offer(signal, complete)) complete(false)
+                        }
+                    }
+                    videoLink = link
+                    VideoControlBridge.connected(link)
+                }
             } else when (type) {
-                "pong", "video.ready", "video.closed" -> Unit // Video capture is a separate milestone.
+                "pong" -> Unit
+                "video.ready", "video.closed", "video.answer", "video.ice", "video.error" ->
+                    videoLink?.let { VideoControlBridge.receive(it, json) }
                 "error" -> {
                     when (json.get("code")) {
                         "guidance_disabled" -> {
@@ -297,6 +345,8 @@ class SatelliteTransport internal constructor(
                             publish(TransportState.CONNECTED, "guidance_disabled")
                         }
                         "stale_sequence", "invalid_message" -> { fail("protocol_rejected"); return }
+                        "viewer_unavailable" -> videoLink?.let { VideoControlBridge.receive(it,
+                            JSONObject().put("type", "video.closed")) }
                         else -> Unit
                     }
                 }
@@ -317,6 +367,9 @@ class SatelliteTransport internal constructor(
     }
 
     private fun disconnect() {
+        videoLink?.let { VideoControlBridge.disconnected(it.generation) }
+        videoLink = null
+        videoQueue.clear()
         val old = socket
         val oldFactory = socketFactory
         socket = null
@@ -341,6 +394,7 @@ class SatelliteTransport internal constructor(
             try { onStatus(status) } catch (_: Exception) { /* UI callbacks cannot kill network recovery. */ }
         }
     }
+    private companion object { val VIDEO_GENERATIONS = AtomicLong() }
 }
 
 /** Only creates sockets on the selected LAN Network. It never changes process/default routing. */

@@ -1,0 +1,15 @@
+<ScrollView android:id="@+id/update_root" xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="24dp">
+        <TextView style="@style/Body" android:text="@string/updates_title" />
+        <TextView android:id="@+id/update_installed" style="@style/Body" />
+        <TextView style="@style/Body" android:text="@string/update_help" />
+        <TextView android:id="@+id/update_status" style="@style/Body" android:accessibilityLiveRegion="polite" />
+        <Button android:id="@+id/update_check" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/update_check" />
+        <TextView android:id="@+id/update_notes" style="@style/Body" android:textIsSelectable="true" />
+        <Button android:id="@+id/update_download" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/update_download" />
+        <Button android:id="@+id/update_install" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/update_install" />
+        <Button android:id="@+id/update_close" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/update_close" />
+    </LinearLayout>
+</ScrollView>

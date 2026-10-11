@@ -41,6 +41,7 @@
             android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/restart_after_boot" />
         <TextView style="@style/Body" android:text="@string/receiver_help" />
         <TextView style="@style/SectionTitle" android:text="@string/device_section" />
+        <Button android:id="@+id/updates" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/updates_title" />
         <TextView android:id="@+id/device_info" style="@style/Body" android:textIsSelectable="true" />
         <TextView style="@style/Body" android:text="@string/video_pending" android:layout_marginTop="16dp" />
     </LinearLayout>

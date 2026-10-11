@@ -105,3 +105,16 @@ capture stop, reconnection, and renewed consent when required. Record the codec,
 rate, screen-to-cluster latency, CPU/GPU, temperature, and Overdrive frame drops.
 Final acceptance requires the actual vehicle, sources that stop correctly, and normal DashCast
 operation preserved when the satellite is disabled.
+
+## OTA update acceptance (0.6.0-dev and later)
+
+All items below require a parked Tbox Ultra 1 / Android 15 test; they are not yet confirmed.
+
+- [ ] Install the first OTA-enabled APK manually without uninstalling; pairing and settings survive.
+- [ ] Updates → Check for updates handles offline state visibly and succeeds on retry with Internet access.
+- [ ] A newer same-channel release shows its version and notes; old/draft/other-channel releases are ignored.
+- [ ] Download progresses, rotation preserves it, and Close/Back cancels and removes the staged file.
+- [ ] Blocked installation-source settings show Android's permission screen; returning requires another explicit Install tap.
+- [ ] Android installer confirmation can be cancelled, then retried manually.
+- [ ] Same-key, newer-version replacement succeeds and the existing recovery setting governs reconnection.
+- [ ] Downloading does not stop or rebind the LAN guidance session; installation naturally replaces/restarts Satellite.

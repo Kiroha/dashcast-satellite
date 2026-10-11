@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">DashCast Satellite</string>
+    <string name="app_name">DashSat</string>
     <string name="subtitle">Navigation guidance from your Android box to DashCast</string>
     <string name="pairing_section">1. Pairing</string>
     <string name="pairing_help">Connect this device to the car hotspot. In DashCast, open Satellite device → Pair a device, then enter its code here.</string>
@@ -21,7 +21,7 @@
     <string name="import_pairing">Advanced: import a pairing file</string>
     <string name="forget_pairing">Forget pairing</string>
     <string name="saved_receiver">Saved DashCast ID: %1$s\nCar addresses: %2$s\nCompare this ID with the Satellite page in DashCast. A saved pairing does not mean connected.</string>
-    <string name="satellite_identity">This Satellite: %1$s · ID %2$s</string>
+    <string name="satellite_identity">This DashSat: %1$s · ID %2$s</string>
     <string name="not_paired">No saved profile</string>
     <string name="import_failed">Invalid profile or protected storage unavailable.</string>
     <string name="import_ok">Pairing saved. You can now start the connection.</string>
@@ -30,12 +30,12 @@
     <string name="source_abrp">ABRP · experimental</string>
     <string name="source_help">Maps can use recognized notification arrows or explicit text. Roundabouts require an explicit exit number. Unknown or conflicting guidance is not sent. ABRP requires explicit text.</string>
     <string name="grant_access">Allow notification access</string>
-    <string name="notification_access_label">DashCast Satellite · guidance reader</string>
+    <string name="notification_access_label">DashSat · guidance reader</string>
     <string name="access_on">Notification access granted</string>
     <string name="access_off">Notification access required</string>
-    <string name="restricted_access_help">If Android says “App was denied access”, open App info → ⋮ → Allow restricted settings, then return and enable notification access. This lets Satellite read navigation notifications from your selected source. If the option is missing or disabled, the box firmware may restrict access; the app cannot grant it itself.</string>
+    <string name="restricted_access_help">If Android says “App was denied access”, open App info → ⋮ → Allow restricted settings, then return and enable notification access. This lets DashSat read navigation notifications from your selected source. If the option is missing or disabled, the box firmware may restrict access; the app cannot grant it itself.</string>
     <string name="open_app_info">Open App info for restricted settings</string>
-    <string name="app_info_unavailable">Unable to open App info. Open Android Settings → Apps → DashCast Satellite.</string>
+    <string name="app_info_unavailable">Unable to open App info. Open Android Settings → Apps → DashSat.</string>
     <string name="session_section">3. Transmission</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
@@ -83,4 +83,21 @@
     <string name="video_pending">Video is planned for milestone 2, after guidance has been validated on the box.</string>
     <string name="service_channel">DashCast connection</string>
     <string name="service_notification">Guidance transmission enabled</string>
+    <string name="updates_title">Updates</string>
+    <string name="update_installed">Installed version: %1$s</string>
+    <string name="update_help">Check GitHub for a compatible DashSat update. Internet access is required. Downloads use your normal Internet connection. Android asks you to allow installation from this app and confirm the update. Complete setup while parked; installation restarts DashSat.</string>
+    <string name="update_idle">Updates are checked only when you tap Check for updates.</string>
+    <string name="update_check">Check for updates</string>
+    <string name="update_checking">Checking GitHub…</string>
+    <string name="update_current">No newer compatible update found.</string>
+    <string name="update_available">A compatible update is available.</string>
+    <string name="update_downloading">Downloading and checking: %1$d%%</string>
+    <string name="update_verifying">Verifying APK before installation…</string>
+    <string name="update_ready">Update verified. Tap Install update. If Android needs permission, allow this app and return here, then tap Install update again.</string>
+    <string name="update_error">Unable to check or verify this update. Check Internet access and free storage, then retry. Unverified APKs cannot be installed.</string>
+    <string name="update_release_notes">%1$s\n\n%2$s</string>
+    <string name="update_download">Download update / Retry</string>
+    <string name="update_install">Install update</string>
+    <string name="update_close">Close / Cancel download</string>
+    <string name="update_installer_unavailable">Unable to open Android installation settings or installer. Check the box firmware settings and try again.</string>
 </resources>

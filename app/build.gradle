@@ -11,8 +11,8 @@ android {
         applicationId = 'io.github.kiroha.dashcast.satellite'
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = '0.5.0'
+        versionCode = 7
+        versionName = '0.6.0'
     }
     signingConfigs {
         if (hasReleaseKey) {
@@ -60,6 +60,8 @@ tasks.configureEach {
 }
 
 dependencies {
+    // Narrow read-only APK sharing with the Android package installer.
+    implementation 'androidx.core:core:1.17.0'
     // Vetted password-authenticated exchange permits a six-digit code without offline guessing.
     implementation 'org.bouncycastle:bcprov-jdk15to18:1.86'
     implementation 'org.java-websocket:Java-WebSocket:1.6.0'

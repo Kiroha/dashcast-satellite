@@ -113,6 +113,9 @@ class MainActivity : Activity() {
             isChecked = settings.restartAfterBoot
             setOnCheckedChangeListener { _, checked -> settings.restartAfterBoot = checked }
         }
+        findViewById<Button>(R.id.updates).setOnClickListener {
+            startActivity(Intent(this, io.github.kiroha.dashcast.satellite.update.UpdatesActivity::class.java))
+        }
         val webView = runCatching { WebView.getCurrentWebViewPackage()?.versionName }.getOrNull()
         findViewById<TextView>(R.id.device_info).text = getString(R.string.device_info,
             Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT,

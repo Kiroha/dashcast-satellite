@@ -1,4 +1,4 @@
-# DashCast Satellite
+# DashSat
 
 Repository: [Kiroha/dashcast-satellite](https://github.com/Kiroha/dashcast-satellite).
 
@@ -34,7 +34,7 @@ text guidance. The second milestone will add video capture.
    [Android procedure](https://support.google.com/android/answer/12623953?hl=en); the app cannot
    grant access itself, and the box firmware may restrict the available settings.
 5. In DashCast, select **Use satellite guidance** and the desired HUD/cluster outputs.
-   In Satellite, tap **Start**, then start actual navigation in the selected source app.
+   In DashSat, tap **Start**, then start actual navigation in the selected source app.
 6. Check the **Connection** and **Source** states, then the physical display. An established
    connection does not prove that a usable maneuver is available. The receiver guidance status
    reflects the last handshake or rejection; reconnect after changing this setting to confirm it.
@@ -50,12 +50,12 @@ validate the actual topology in the [Carlinkit checklist](docs/CARLINKIT_VALIDAT
 
 The saved profile shows the **DashCast ID** and saved IPv4 car addresses. Compare that ID with the
 Satellite page in the vehicle. Saving a profile does not establish a live connection.
-**This Satellite** shows this installation's device label and random ID; DashCast displays it
+**This DashSat** shows this installation's device label and random ID; DashCast displays it
 after authentication, or explicitly shows its last connection while offline. Older senders
 appear as an unknown device. The display name/ID is sender-reported metadata, not an additional
 authentication factor or a per-device revocation list.
 
-Satellite shows the address currently tried and a fixed explanation of the last connection
+DashSat shows the address currently tried and a fixed explanation of the last connection
 failure. The selected LAN's current IPv4 gateway and local-subnet addresses are tried before
 other saved private IPv4 addresses, with backoff after a bounded candidate cycle. This also
 allows recovery after a gateway address changes, using the original certificate pin and token.
@@ -131,3 +131,9 @@ Video restart without consent is not promised.
 Android references used: [connectedDevice services](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device),
 [listener lifecycle](https://developer.android.com/reference/android/service/notification/NotificationListenerService),
 [socket bound to a Network](https://developer.android.com/reference/android/net/Network#bindSocket(java.net.Socket)).
+
+## Manual updates
+
+From version 0.6.0-dev, open **Updates** to check GitHub, download a verified compatible
+APK and confirm installation in Android. Install this first OTA-capable version manually
+without uninstalling. See [update behavior and trust](docs/UPDATES.md).

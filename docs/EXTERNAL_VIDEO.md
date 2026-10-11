@@ -63,8 +63,9 @@ The goal is lower sustained **vehicle** CPU/GPU workload than running the naviga
 Hardware encoding on the box does not prove hardware decoding in the vehicle WebView. The receiver
 has an opt-in overlay: long-press the main-display preview to toggle it, then open the cluster viewer.
 It reports codec, dimensions, decoded FPS, bitrate, dropped frames and average decode time when
-available. Hardware decoding remains **unknown** unless the WebView provides explicit platform
-`powerEfficientDecoder` evidence; codec choice/low decode time alone is not evidence. Counters are
+available. `powerEfficientDecoder`, when supplied by WebView, is an efficiency hint and does not
+certify hardware decoding. Hardware decoding remains **unknown** without independent platform
+decoder evidence; codec choice/low decode time alone is not evidence. Counters are
 sanitized; overlay text contains no route or connection identifiers. Missing decoder counters do not
 use received bytes as a freshness substitute, and a frozen map clears after six seconds.
 
@@ -74,7 +75,7 @@ Use identical route/scenario, display brightness, Overdrive settings and ambient
 | --- | --- | --- |
 | DashCast idle, same Overdrive recording | CPU/GPU, temperature, frame loss baseline | Thermal/recording baseline |
 | Maps running and projected locally in the car | CPU/GPU, temperature, visible latency, frame loss | Sustained app workload |
-| Maps running on Tbox; DashSat video to same cluster | Codec/HW evidence, decode time/FPS/drop, CPU/GPU, screen-to-cluster latency | Heat/throttling, frame loss, comparison with local Maps |
+| Maps running on Tbox; DashSat video to same cluster | Codec, efficiency hint/independent decoder evidence, decode time/FPS/drop, CPU/GPU, screen-to-cluster latency | Heat/throttling, frame loss, comparison with local Maps |
 
 Record exact vehicle model/ROM/API/WebView version, box firmware/API, APK versions and negotiated
 codec. Test static maps for over a minute, moving content, app sharing resize/rotation, viewer closure,

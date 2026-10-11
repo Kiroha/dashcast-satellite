@@ -54,7 +54,7 @@ class CodePairingActivity : Activity() {
         val addressInput = findViewById<EditText>(R.id.manual_address)
         val manual = if (findViewById<CheckBox>(R.id.manual_address_toggle).isChecked)
             addressInput.text.toString().trim() else null
-        if (manual != null && PairingProfile.numericLocalAddress(manual) == null) {
+        if (manual != null && PairingProfile.numericLocalIpv4Address(manual) == null) {
             addressInput.error = getString(R.string.pairing_address_invalid)
             return
         }

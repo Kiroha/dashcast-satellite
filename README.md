@@ -20,9 +20,11 @@ text guidance. The second milestone will add video capture.
    network; the process and other apps keep their default network.
 3. In a DashCast version supporting code pairing, enable the satellite receiver and select
    **Pair a device**. Switch to the Tbox interface, select **Pair with DashCast** and enter
-   the displayed temporary six-digit code. Satellite tries the Wi-Fi gateway
+   the displayed temporary six-digit code. Satellite tries the Wi-Fi IPv4 gateway
    and saves the profile automatically. If needed, select **Advanced: enter the car IP address** and use
-   an address displayed by DashCast. The pairing window lasts two minutes; no file or camera is needed.
+   a local IPv4 address displayed by DashCast. The pairing window lasts two minutes; no file or camera is needed.
+   DashCast 1.9.14-beta keeps preparation failures visible with **Try again**. Hiding a pending
+   or ready window preserves its deadline; an explicit retry starts a fresh one.
    **Advanced: import a pairing file** remains available for older receivers. Internal storage
    is encrypted and excluded from backups; remove transferred profile files after importing them.
 4. Explicitly grant notification access in Android and select **Google Maps** or **ABRP**.
@@ -46,7 +48,7 @@ validate the actual topology in the [Carlinkit checklist](docs/CARLINKIT_VALIDAT
 
 ## Identifying the connection
 
-The saved profile shows the **DashCast ID** and car addresses. Compare that ID with the
+The saved profile shows the **DashCast ID** and saved IPv4 car addresses. Compare that ID with the
 Satellite page in the vehicle. Saving a profile does not establish a live connection.
 **This Satellite** shows this installation's device label and random ID; DashCast displays it
 after authentication, or explicitly shows its last connection while offline. Older senders
@@ -54,10 +56,13 @@ appear as an unknown device. The display name/ID is sender-reported metadata, no
 authentication factor or a per-device revocation list.
 
 Satellite shows the address currently tried and a fixed explanation of the last connection
-failure. Hotspot gateway and local-subnet addresses are tried before other exported private
-addresses, with backoff after the available candidates have been tried. Certificate pinning and
-LAN-bound sockets remain mandatory. Install **DashCast 1.9.13-beta and Satellite 0.4.0-dev** to
-fix the WebSocket upgrade rejection in both applications; existing profiles remain usable.
+failure. The selected LAN's current IPv4 gateway and local-subnet addresses are tried before
+other saved private IPv4 addresses, with backoff after a bounded candidate cycle. This also
+allows recovery after a gateway address changes, using the original certificate pin and token.
+Old v1 profiles containing IPv6 remain readable; IPv6 is not attempted. If no local IPv4
+candidate is available, the app displays a fixed explanation. Cellular/VPN sockets and
+process routing are excluded from this path. Install **DashCast 1.9.14-beta and Satellite 0.5.0-dev**
+for this recovery and visible pairing failures; existing pairing profiles remain usable.
 
 ## Build and checks
 

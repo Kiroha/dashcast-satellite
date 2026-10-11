@@ -12,8 +12,8 @@ physical display output or correct operation of AndroidKeyStore storage/TLS on t
 | Exact manufacturer / model shown in the app | QUALCOMM Lito for arm64 (user screenshot) |
 | Box build number / firmware | To record |
 | Satellite / DashCast APK version | To record |
-| Box and vehicle WebView | To record |
-| Notification access visible and grantable | Restricted-settings denial observed; user enabled “Allow restricted settings” on October 10. Final listener grant/observation still to verify. |
+| Box and vehicle WebView | Box: 153.0.8010.36 (October 11 screenshot); vehicle: to record |
+| Notification access visible and grantable | Restricted-settings denial observed October 10; user enabled “Allow restricted settings”. October 11 screenshot confirms “Notification access granted”; usable route observation remains to verify. |
 | Google Maps version and language | To record |
 | ABRP version and language | To record |
 | Device hosting the hotspot | Vehicle, using TetherFuseNet; Tbox connected as Wi-Fi client (user reported) |
@@ -44,6 +44,21 @@ Retest with both new APKs, then verify the notification-listener grant, enable *
 guidance**, and start an actual route. Confirm the same DashCast ID on both screens, authenticated
 device identity, valid maneuver output, route-stop clearing and Wi-Fi reconnection. These
 checks remain pending; no physical guidance success is inferred from pairing or local tests.
+
+## User report — October 11, 2026
+
+With DashCast 1.9.13-beta and Satellite 0.4.0-dev, the pairing dialog briefly shows
+**Preparing code**, then disappears. Satellite shows **Notification access granted**,
+**connecting**, a connection timeout and **no active navigation observed**. The saved
+profile includes IPv6 link-local addresses and two private IPv4 candidates; seeing
+a saved profile or a permission grant does not establish an authenticated connection.
+
+Local regressions reproduce silent certificate/profile preparation failure, an IPv6
+connection attempt and failure to use a changed IPv4 gateway absent from a saved profile.
+DashCast 1.9.14-beta and Satellite 0.5.0-dev prepare an IPv4 hotspot path and persistent
+pairing failure labels with explicit retry. No exact cause for the vehicle's preparation
+failure can be inferred from the screenshots alone. Retest the fixed dialog and record its
+failure category if needed. Physical pairing, route guidance and reconnection remain pending.
 
 ## First milestone: guidance
 

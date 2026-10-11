@@ -2,6 +2,7 @@ package io.github.kiroha.dashcast.satellite.transport
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
@@ -14,9 +15,7 @@ import org.java_websocket.client.WebSocketClient
 import org.java_websocket.drafts.Draft_6455
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
-import java.net.Inet6Address
 import java.net.InetSocketAddress
-import java.net.NetworkInterface
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -130,26 +129,39 @@ class SatelliteTransport internal constructor(
         if (networkCallback != null) return
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) = dispatch {
-                networks.add(network)
+                if (isLan(network)) networks.add(network)
                 if (socket == null) nextAttempt = 0
+            }
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = dispatch {
+                // onAvailable can precede usable getters. The callback's capabilities establish
+                // LAN eligibility without losing a newly connected, unvalidated hotspot.
+                if (isLan(capabilities)) networks.add(network) else {
+                    networks.remove(network)
+                    if (network == selectedNetwork) fail("lan_lost")
+                }
+                if (socket == null) nextAttempt = 0
+            }
+            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = dispatch {
+                if (network in networks && socket == null) nextAttempt = 0
             }
             override fun onLost(network: Network) = dispatch {
                 networks.remove(network)
                 if (network == selectedNetwork) fail("lan_lost")
             }
         }
-        connectivity.allNetworks.filterTo(networks) { network ->
-            connectivity.getNetworkCapabilities(network)?.let { capabilities ->
-                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                    (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
-            } == true
-        }
+        connectivity.allNetworks.filterTo(networks, ::isLan)
         connectivity.registerNetworkCallback(NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET).build(), callback)
         networkCallback = callback
     }
+
+    private fun isLan(network: Network): Boolean = connectivity.getNetworkCapabilities(network)?.let(::isLan) == true
+
+    private fun isLan(capabilities: NetworkCapabilities): Boolean =
+        !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+            (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
 
     private fun tick() {
         if (!running) return
@@ -184,21 +196,26 @@ class SatelliteTransport internal constructor(
 
     private fun connect(now: Long) {
         val pairing = profile ?: return
-        val choices = networks.take(LanEndpoints.MAX_LAN_NETWORKS)
-        if (choices.isEmpty()) return
+        val choices = networks.filter(::isLan).take(LanEndpoints.MAX_LAN_NETWORKS)
+        if (choices.isEmpty()) { publish(TransportState.WAITING_FOR_LAN); return }
         val candidates = choices.flatMap { network ->
             val properties = connectivity.getLinkProperties(network)
             val gateways = properties?.routes?.mapNotNull { it.gateway }.orEmpty()
             val prefixes = properties?.routes?.map {
                 LanEndpointRank.Prefix(it.destination.address, it.destination.prefixLength)
             }.orEmpty()
-            pairing.hosts.mapNotNull { host ->
-                PairingProfile.numericLocalAddress(host)?.let { address ->
+            val ipv4Gateways = gateways.mapNotNull { it.hostAddress }
+                .filter { PairingProfile.numericLocalIpv4Address(it) != null }
+            (ipv4Gateways + pairing.ipv4Hosts).distinct().mapNotNull { host ->
+                PairingProfile.numericLocalIpv4Address(host)?.let { address ->
                     LanEndpoints.Endpoint(network, host, LanEndpointRank.rank(address, gateways, prefixes))
                 }
-            }
+            }.sortedBy { it.rank }.take(16)
         }
-        val endpoint = endpoints.next(candidates) ?: return
+        val endpoint = endpoints.next(candidates) ?: run {
+            publish(TransportState.WAITING_FOR_LAN, "ipv4_unavailable")
+            return
+        }
         val host = endpoint.host
         val network = endpoint.network
         val client = object : WebSocketClient(pairing.uri(host),
@@ -232,7 +249,7 @@ class SatelliteTransport internal constructor(
                 if (this@SatelliteTransport.socket === this) fail(TransportFailure.detail(error))
             }
         }
-        val factory = LanTlsSocketFactory(network, connectivity, host, pairing)
+        val factory = LanTlsSocketFactory(network, host, pairing)
         client.setSocketFactory(factory)
         client.isTcpNoDelay = true
         client.connectionLostTimeout = 0 // One explicit bounded heartbeat policy, no second scheduler.
@@ -329,19 +346,14 @@ class SatelliteTransport internal constructor(
 /** Only creates sockets on the selected LAN Network. It never changes process/default routing. */
 private class LanTlsSocketFactory(
     network: Network,
-    connectivity: ConnectivityManager,
     host: String,
     pairing: PairingProfile,
 ) : CancellableSocketFactory(
     createRawSocket = { network.socketFactory.createSocket() },
     prepareSocket = { raw ->
-        val address = PairingProfile.numericLocalAddress(host) ?: error("Invalid LAN address")
-        val scoped = if (address is Inet6Address && address.isLinkLocalAddress) {
-            val interfaceName = connectivity.getLinkProperties(network)?.interfaceName ?: error("Missing LAN interface")
-            Inet6Address.getByAddress(null, address.address, NetworkInterface.getByName(interfaceName))
-        } else address
+        val address = PairingProfile.numericLocalIpv4Address(host) ?: error("Invalid LAN IPv4 address")
         raw.tcpNoDelay = true
-        raw.connect(InetSocketAddress(scoped, pairing.port), 4_000)
+        raw.connect(InetSocketAddress(address, pairing.port), 4_000)
         PinnedTls.prepareSocket(raw, host, pairing.port, pairing.certificateSha256)
     },
 )

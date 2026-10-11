@@ -11,7 +11,8 @@
     <string name="pairing_manual_address">Advanced: enter the car IP address</string>
     <string name="pairing_address_label">Car IP address shown in DashCast</string>
     <string name="pairing_address_hint">Car IP, e.g. 192.168.49.1</string>
-    <string name="pairing_address_invalid">Enter a local IP address without a port or URL.</string>
+    <string name="pairing_address_invalid">Enter a local IPv4 address without a port or URL.</string>
+    <string name="ipv4_unavailable">no local IPv4 car address is available; check the car hotspot or pair again</string>
     <string name="pairing_code_submit">Pair</string>
     <string name="pairing_code_cancel">Cancel</string>
     <string name="pairing_code_connecting">Connecting to DashCast…</string>

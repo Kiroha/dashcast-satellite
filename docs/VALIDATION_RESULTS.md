@@ -1,5 +1,39 @@
 # Baseline verification — October 9, 2026
 
+## IPv4 hotspot and pairing diagnostics — October 11, 2026
+
+Satellite 0.5.0-dev (version code 6) uses local IPv4 for pairing and WSS, while retaining
+the reviewed v1 profile parser and pinned contract fixtures. The matching receiver is
+DashCast 1.9.14-beta (version code 653). No pairing-secret or certificate migration is required.
+
+Regressions failed before the changes for an actual receiver **Pair device** click with
+a failed certificate/profile provider, a gateway that had changed since the saved profile,
+and an attempted IPv6 endpoint. The same scenarios pass after the changes. Earlier pairing
+lifecycle fixtures started with an already prepared listener, so they did not exercise the
+asynchronous preparation failure that silently dismissed the dialog.
+
+Coverage includes IPv4-only automatic/manual pairing, legacy mixed profiles, mapped IPv6
+literal exclusion, explicit missing-IPv4 status, pinned TLS to a LAN-provided gateway not
+listed in the old profile, and rejection of an incorrect gateway certificate before hello.
+A new callback-ordering test starts without a LAN, delivers **onAvailable** while capability
+getters are absent, then receives Wi-Fi capabilities and completes the production pinned
+TLS/hello/welcome path. That callback test was added with its correction; it was not separately
+executed as a failing test before the change.
+
+Receiver coverage includes certificate/no-address/bind/foreground-start failures, explicit
+retry, pending preparation across CarPlay, original code/deadline retention, generation-owned
+receiver cleanup and sampling while a listener close callback is blocked. The final targeted
+receiver run passes 40 tests in four suites. Independent final verification passes **138
+companion tests in 22 suites** and **989 receiver tests in 185 suites**, with no failures,
+errors or skipped tests. Companion debug lint and receiver release lint report zero issues.
+Companion debug assembly and signed receiver release assembly pass. Both protocol pins verify.
+`graphify update .` completes in both repositories; existing partial Groovy/AST extraction
+warnings do not prevent the Android builds from validating source syntax.
+
+User screenshots confirm notification access is granted on Android 15 and WebView 153.0.8010.36.
+They still show connection timeouts and no active navigation. The exact vehicle preparation
+error, physical guidance and reconnection remain unverified; see [vehicle validation](CARLINKIT_VALIDATION.md).
+
 ## Connection and identity correction — October 10, 2026
 
 Application 0.4.0-dev (version code 5), paired with DashCast 1.9.13-beta, corrects a

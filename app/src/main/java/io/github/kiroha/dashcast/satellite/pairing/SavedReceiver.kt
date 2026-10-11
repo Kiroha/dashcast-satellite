@@ -5,7 +5,7 @@ data class SavedReceiver(val displayId: String, val hosts: List<String>) {
     companion object {
         fun from(profile: PairingProfile) = SavedReceiver(
             SatelliteDeviceIdentity.receiverId(profile.certificateSha256),
-            profile.hosts.toList(),
+            profile.ipv4Hosts,
         )
     }
 }

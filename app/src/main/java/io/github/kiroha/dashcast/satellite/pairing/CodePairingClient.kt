@@ -6,10 +6,8 @@ import android.net.NetworkCapabilities
 import java.io.Closeable
 import java.io.DataOutputStream
 import java.io.IOException
-import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
-import java.net.NetworkInterface
 import java.net.Socket
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -34,7 +32,7 @@ internal class CodePairingClient(
     fun pair(rawCode: String, manualHost: String?): PairingProfile {
         ensureActive()
         val code = SatellitePairingCode.normalize(rawCode)
-        if (manualHost != null) require(PairingProfile.numericLocalAddress(manualHost) != null)
+        if (manualHost != null) require(PairingProfile.numericLocalIpv4Address(manualHost) != null)
         val deadline = System.nanoTime() + TOTAL_TIMEOUT_MS * 1_000_000L
         val available = candidates(manualHost).take(MAX_CANDIDATES)
         if (available.isEmpty()) throw PairingException(Failure.NO_LAN)
@@ -135,7 +133,7 @@ internal class CodePairingClient(
         @Suppress("DEPRECATION")
         private fun lanCandidates(context: Context, manualHost: String?): List<Candidate> {
             val manager = context.getSystemService(ConnectivityManager::class.java)
-            val manualAddress = manualHost?.let { PairingProfile.numericLocalAddress(it) }
+            val manualAddress = manualHost?.let { PairingProfile.numericLocalIpv4Address(it) }
             val result = mutableListOf<Candidate>()
             for (network in manager.allNetworks) {
                 val capabilities = manager.getNetworkCapabilities(network) ?: continue
@@ -147,20 +145,11 @@ internal class CodePairingClient(
                     properties.routes.filter { it.isDefaultRoute }.mapNotNull { it.gateway }
                 for (address in addresses.distinct()) {
                     val literal = address.hostAddress?.substringBefore('%') ?: continue
-                    if (PairingProfile.numericLocalAddress(literal) == null) continue
-                    val scoped = scope(address, properties.interfaceName) ?: continue
-                    result.add(Candidate(network.socketFactory, InetSocketAddress(scoped, SatellitePairingCode.PORT)))
+                    if (PairingProfile.numericLocalIpv4Address(literal) == null) continue
+                    result.add(Candidate(network.socketFactory, InetSocketAddress(address, SatellitePairingCode.PORT)))
                 }
             }
-            // Hotspots commonly expose an IPv4 gateway even when IPv6 is present. Try it first.
-            return result.sortedBy { if (it.address.address is Inet6Address) 1 else 0 }.take(MAX_CANDIDATES)
+            return result.take(MAX_CANDIDATES)
         }
-
-        private fun scope(address: InetAddress, interfaceName: String?): InetAddress? = try {
-            if (address is Inet6Address && address.isLinkLocalAddress && address.scopeId == 0) {
-                val iface = interfaceName?.let(NetworkInterface::getByName) ?: return null
-                Inet6Address.getByAddress(null, address.address, iface)
-            } else address
-        } catch (_: Exception) { null }
     }
 }

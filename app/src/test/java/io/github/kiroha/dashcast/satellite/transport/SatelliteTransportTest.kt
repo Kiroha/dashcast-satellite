@@ -43,6 +43,7 @@ import java.util.Base64
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.SocketFactory
@@ -109,6 +110,122 @@ class SatelliteTransportTest {
             assertTrue(stopped.await(3, TimeUnit.SECONDS))
             server.stopQuietly()
         }
+    }
+
+    @Test fun `legacy mixed profile only attempts IPv4 on the selected LAN`() {
+        val attempted = CopyOnWriteArrayList<String>()
+        val triedIpv6 = CountDownLatch(1)
+        val failedIpv4 = CountDownLatch(1)
+        val stopped = CountDownLatch(1)
+        val now = AtomicLong(100)
+        configureLan {
+            object : Socket() {
+                override fun connect(endpoint: SocketAddress, timeout: Int) {
+                    val host = (endpoint as InetSocketAddress).address.hostAddress!!
+                    attempted.add(host)
+                    if (endpoint.address.address.size == 16) triedIpv6.countDown()
+                    throw SocketException("Test-only unreachable endpoint")
+                }
+            }
+        }
+        val transport = SatelliteTransport(app, {
+            if (it.state == TransportState.STOPPED) stopped.countDown()
+            if (it.state == TransportState.RECONNECTING) failedIpv4.countDown()
+        }, now::get)
+        try {
+            transport.start(profile(47832, listOf("fd00::1", "127.0.0.1")))
+            assertTrue(failedIpv4.await(3, TimeUnit.SECONDS))
+            now.set(350)
+            triedIpv6.await(500, TimeUnit.MILLISECONDS)
+            assertEquals(listOf("127.0.0.1"), attempted.toList())
+        } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)) }
+    }
+
+    @Test fun `current IPv4 hotspot gateway reconnects under the saved pin after an address change`() {
+        configureLan { Socket() }
+        val connected = CountDownLatch(1)
+        val stopped = CountDownLatch(1)
+        val server = TestReceiver(sendWelcome = true)
+        val transport = SatelliteTransport(app, {
+            if (it.state == TransportState.CONNECTED) connected.countDown()
+            if (it.state == TransportState.STOPPED) stopped.countDown()
+        }, { 100L })
+        try {
+            server.startAndAwait()
+            transport.start(profile(server.port, listOf("192.168.51.1")))
+            assertTrue("Saved profile omitted the current LAN gateway", connected.await(3, TimeUnit.SECONDS))
+        } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)); server.stopQuietly() }
+    }
+
+    @Test fun `a new hotspot gateway cannot authenticate with a different certificate`() {
+        configureLan { Socket() }
+        val rejected = CountDownLatch(1)
+        val stopped = CountDownLatch(1)
+        val statuses = CopyOnWriteArrayList<TransportStatus>()
+        val server = TestReceiver(sendWelcome = true)
+        val transport = SatelliteTransport(app, {
+            statuses.add(it)
+            if (it.detail == "certificate_rejected") rejected.countDown()
+            if (it.state == TransportState.STOPPED) stopped.countDown()
+        }, { 100L })
+        try {
+            server.startAndAwait()
+            val original = profile(server.port, listOf("192.168.51.1"))
+            val wrongPin = PairingProfile.parse(JSONObject(original.encoded())
+                .put("certificateSha256", "ab".repeat(32)).toString())
+            transport.start(wrongPin)
+            assertTrue(rejected.await(3, TimeUnit.SECONDS))
+            assertFalse(statuses.any { it.state == TransportState.CONNECTED })
+            assertNull(server.hello.get())
+            assertEquals("127.0.0.1", statuses.last().endpointHost)
+        } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)); server.stopQuietly() }
+    }
+
+    @Test fun `legacy IPv6-only profile without an IPv4 gateway reports a fixed actionable state`() {
+        configureLan { error("No IPv4 candidate must not create a socket") }
+        val manager = app.getSystemService(ConnectivityManager::class.java)
+        val network = manager.allNetworks.single()
+        shadowOf(manager).setLinkProperties(network, LinkProperties())
+        val unavailable = CountDownLatch(1)
+        val stopped = CountDownLatch(1)
+        val transport = SatelliteTransport(app, {
+            if (it.state == TransportState.WAITING_FOR_LAN && it.detail == "ipv4_unavailable") unavailable.countDown()
+            if (it.state == TransportState.STOPPED) stopped.countDown()
+        }, { 100L })
+        try {
+            transport.start(profile(47832, listOf("fe80::1")))
+            assertTrue(unavailable.await(3, TimeUnit.SECONDS))
+        } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)) }
+    }
+
+    @Test fun `hotspot capabilities arriving after onAvailable recover a missing initial LAN`() {
+        val manager = app.getSystemService(ConnectivityManager::class.java)
+        val shadow = shadowOf(manager)
+        shadow.clearAllNetworks()
+        val waiting = CountDownLatch(1)
+        val connected = CountDownLatch(1)
+        val stopped = CountDownLatch(1)
+        val server = TestReceiver(sendWelcome = true)
+        val transport = SatelliteTransport(app, {
+            if (it.state == TransportState.WAITING_FOR_LAN) waiting.countDown()
+            if (it.state == TransportState.CONNECTED) connected.countDown()
+            if (it.state == TransportState.STOPPED) stopped.countDown()
+        }, { 100L })
+        try {
+            server.startAndAwait()
+            transport.start(profile(server.port, listOf("192.168.51.1")))
+            assertTrue(waiting.await(3, TimeUnit.SECONDS))
+            val callback = shadow.networkCallbacks.single()
+            val network = ShadowNetwork.newInstance(301)
+            assertNull(manager.getNetworkCapabilities(network))
+            callback.onAvailable(network)
+            ReflectionHelpers.getField<ExecutorService>(transport, "worker").submit {}.get(3, TimeUnit.SECONDS)
+            configureLan { Socket() }
+            callback.onCapabilitiesChanged(network, manager.getNetworkCapabilities(network)!!)
+            callback.onLinkPropertiesChanged(network, manager.getLinkProperties(network)!!)
+            assertTrue("A late Wi-Fi capability was never added to the LAN set", connected.await(3, TimeUnit.SECONDS))
+            assertNull(manager.boundNetworkForProcess)
+        } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)); server.stopQuietly() }
     }
 
     @Test fun `connection deadline closes a stalled LAN socket then retains diagnosis for the next host`() {

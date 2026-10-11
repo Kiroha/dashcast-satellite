@@ -274,6 +274,7 @@ class MainActivity : Activity() {
             "invalid_server_message" -> R.string.invalid_server_message
             "transport_failure" -> R.string.transport_failure
             "slow_connection" -> R.string.slow_connection
+            "ipv4_unavailable" -> R.string.ipv4_unavailable
             else -> null
         }
         issue?.let { details.add(getString(R.string.connection_last_issue, getString(it))) }

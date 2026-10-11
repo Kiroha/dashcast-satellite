@@ -15,8 +15,13 @@ class PairingProfile private constructor(
     val certificateSha256: String,
     val token: String,
 ) {
+    /** Keep legacy v1 profiles readable; the hotspot transport uses IPv4 only. */
+    val ipv4Hosts: List<String> get() = hosts.filter { numericLocalIpv4Address(it) != null }
+
     fun uri(host: String): URI {
-        require(host in hosts)
+        // A hotspot can change its IPv4 gateway after reboot. The transport may select that
+        // gateway from its bound LAN; certificate pinning still authenticates the receiver.
+        require(host in hosts || numericLocalIpv4Address(host) != null)
         return URI("wss", null, host, port, path, null, null)
     }
 
@@ -81,5 +86,8 @@ class PairingProfile private constructor(
                         (it.address.size == 16 && (it.address[0].toInt() and 0xfe) == 0xfc))
             }
         } catch (_: Exception) { null }
+
+        internal fun numericLocalIpv4Address(host: String): InetAddress? =
+            if (':' in host) null else numericLocalAddress(host)?.takeIf { it.address.size == 4 }
     }
 }

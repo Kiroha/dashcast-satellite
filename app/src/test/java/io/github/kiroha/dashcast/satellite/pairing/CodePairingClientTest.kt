@@ -119,7 +119,7 @@ class CodePairingClientTest {
     @Test fun `manual DNS public IP and missing LAN never create sockets`() {
         var queried = false
         CodePairingClient { queried = true; emptyList() }.use { client ->
-            for (host in listOf("car.local", "8.8.8.8", "192.168.1.1:47833")) {
+            for (host in listOf("car.local", "8.8.8.8", "192.168.1.1:47833", "fe80::1", "::ffff:192.168.49.1")) {
                 assertThrows(IllegalArgumentException::class.java) { client.pair(CODE, host) }
             }
             assertFalse(queried)
@@ -174,6 +174,29 @@ class CodePairingClientTest {
             assertThrows(CodePairingClient.PairingException::class.java) { it.pair(CODE, null) }
         }
         assertEquals(2, attempts)
+    }
+
+    @Suppress("DEPRECATION")
+    @Test fun `IPv6-only hotspot pairing has no candidate and never opens an IPv6 socket`() {
+        val app = RuntimeEnvironment.getApplication()
+        val manager = app.getSystemService(ConnectivityManager::class.java)
+        val shadow = shadowOf(manager)
+        shadow.clearAllNetworks()
+        val wifi = ShadowNetwork.newInstance(151)
+        shadow.addNetwork(wifi, ShadowNetworkInfo.newInstance(NetworkInfo.DetailedState.CONNECTED,
+            ConnectivityManager.TYPE_WIFI, 0, true, true))
+        val capabilities = ShadowNetworkCapabilities.newInstance()
+        shadowOf(capabilities).addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+        shadow.setNetworkCapabilities(wifi, capabilities)
+        shadow.setLinkProperties(wifi, LinkProperties().apply {
+            interfaceName = "wlan0"
+            addRoute(route("::", "fd00::1", 0))
+        })
+        shadowOf(wifi).setSocketFactory(candidate { error("IPv6 socket must not be created") }.factory)
+        CodePairingClient(app).use { client ->
+            assertEquals(CodePairingClient.Failure.NO_LAN,
+                assertThrows(CodePairingClient.PairingException::class.java) { client.pair(CODE, null) }.failure)
+        }
     }
 
     @Test fun `cancel during socket creation closes the late socket without connecting`() {

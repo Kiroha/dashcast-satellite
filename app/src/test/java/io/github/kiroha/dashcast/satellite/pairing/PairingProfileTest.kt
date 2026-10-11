@@ -47,6 +47,16 @@ class PairingProfileTest {
         assertNull(parsed.uri("fd01::1").query)
     }
 
+    @Test fun `IPv4 hotspot candidates preserve mixed profiles but exclude all IPv6 literals`() {
+        val parsed = PairingProfile.parse(profile().put("hosts", JSONArray(listOf(
+            "fe80::1", "fd01::1", "::ffff:192.168.49.1", "192.168.51.1"))).toString())
+        assertEquals(4, parsed.hosts.size)
+        assertEquals(listOf("192.168.51.1"), parsed.ipv4Hosts)
+        assertNull(PairingProfile.numericLocalIpv4Address("::ffff:192.168.49.1"))
+        assertEquals("wss://192.168.49.1:47832/satellite/v1", parsed.uri("192.168.49.1").toString())
+        assertThrows(IllegalArgumentException::class.java) { parsed.uri("8.8.8.8") }
+    }
+
     private fun rejects(text: String) {
         try { PairingProfile.parse(text); fail("Invalid profile accepted") }
         catch (error: IllegalArgumentException) {

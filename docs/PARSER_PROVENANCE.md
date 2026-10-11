@@ -17,6 +17,33 @@ Relevant history:
 - `9f0a8513be4405d725a1ef62d882ae368a118cc3`: navigation recovery and Maps diagnostics.
 - `48e8f30344d513967e7d065de1ef369c92a89b23`: pinned satellite receiver contract.
 
+## Listener compatibility review
+
+Reviewed against DashCast `7406957b9153d10cd40eb4dd536e6a4f8d62d272`
+(`1.9.17-beta`) and DashSat `583984496c9fef3948a4f5a32e04261d8031220f`
+(`0.6.0-dev`). This is a source review checkpoint, not a change to the protocol or corpus pins.
+The pure text parsing functions have no changes since the text extraction baseline above;
+the Maps image matcher and reference corpus have no changes since `3565221625ef0b3b0e039d7662abff0f5f39aca6`.
+
+DashSat already observes image-only changes even when notification text, key and posting time stay
+unchanged. It re-reads the active notifications for liveness, selects only the configured source,
+and sends stops on removal, permission revocation, listener disconnect, unavailable reads or
+unsupported guidance. Existing `NavigationListenerImageTest`, `NavigationListenerRuntimeTest`,
+`FreshNavigationSamplerTest` and `NavigationAdaptersTest` exercise these companion behaviors,
+including Android 15 observation and public-API listener rebind after an explicit grant.
+
+The subsequent receiver listener changes in `3fe3ce34` and `a650eafc` manage local MediaSession
+observation and its recovery. Those belong to the receiver and do not change Maps/ABRP guidance
+extraction. The receiver's Android 10 approval-refresh fallback uses its privileged proxy and is
+not portable to the regular Android 15 companion; DashSat retains granted-access
+`NotificationListenerService.requestRebind` with bounded backoff. The receiver's roundabout
+traffic-side override is local rendering policy, explicitly excluded from source snapshots and
+protocol v1; DashSat continues to transmit observed circulation and an explicit exit.
+
+No listener code update is required at this checkpoint. Real Tbox guidance, source-stop clearing
+and recovery still require the vehicle checks in `CARLINKIT_VALIDATION.md`; source review and JVM
+tests do not establish hardware acceptance.
+
 The companion changes behavior intentionally: it returns portable names instead of OEM IDs,
 does not assign handedness to a generic roundabout/U-turn/merge/exit, rejects conflicting
 instructions, requires maneuver distance from an instruction or distance-only field, bounds numeric

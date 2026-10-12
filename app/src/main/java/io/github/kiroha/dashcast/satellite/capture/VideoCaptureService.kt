@@ -5,8 +5,12 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.KeyguardManager
 import android.app.Service
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -15,6 +19,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import io.github.kiroha.dashcast.satellite.R
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicInteger
@@ -24,17 +29,35 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
     private val thread = HandlerThread("dashsat-video-control")
     private lateinit var worker: Handler
     private val main = Handler(Looper.getMainLooper())
-    private var sender: NativeVideoSender? = null
+    private var sender: VideoCaptureEngine? = null
     private var projection: MediaProjection? = null
     private var subscription: Closeable? = null
     private var owner: VideoLink? = null
     @Volatile private var ending = false
     private var started = false
+    private var screenReceiverRegistered = false
+    // Instance-local seams exercise the real service lifecycle without loading native codecs in JVM tests.
+    internal var createProjection: (Intent) -> MediaProjection = { consent ->
+        getSystemService(MediaProjectionManager::class.java).getMediaProjection(Activity.RESULT_OK, consent)
+            ?: error("consent_required")
+    }
+    internal var createEngine: (Context, VideoLink, (() -> Unit) -> Unit, (String) -> Unit) -> VideoCaptureEngine =
+        { context, link, post, failed -> NativeVideoSender(context, link, post, failed) { !ending && canCapture() } }
+    private val projectionCallback = object : MediaProjection.Callback() {
+        override fun onStop() { finishCapture("capture_revoked") }
+    }
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) finishCapture("capture_locked")
+        }
+    }
+    private var notificationText = 0
     private val queued = AtomicInteger()
     private val stats = object : Runnable {
         override fun run() {
-            if (ending) return
+            if (ending || owner?.viewerReady != true) return
             sender?.collectStats()
+            updateNotification()
             worker.postDelayed(this, 1000)
         }
     }
@@ -54,23 +77,36 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
             val consent = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(CONSENT, Intent::class.java)
                 else intent.getParcelableExtra<Intent>(CONSENT)
             val link = VideoControlBridge.link
-            if (consent == null || link == null || !link.viewerReady ||
+            if (consent == null || link == null ||
                 intent.getLongExtra(GENERATION, -1) != link.generation) {
-                finishCapture("viewer_required"); return START_NOT_STICKY
+                finishCapture("control_unavailable"); return START_NOT_STICKY
             }
             owner = link
             VideoState.status = "starting"; VideoState.metrics = ""
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenReceiver,
+                IntentFilter(Intent.ACTION_SCREEN_OFF), RECEIVER_NOT_EXPORTED)
+            else registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+            screenReceiverRegistered = true
+            // Subscribe before initialization, then reconcile current readiness: ready/closed can
+            // change while Android consent or native setup is in progress.
+            subscription = VideoControlBridge.subscribe(this)
             worker.post {
                 if (ending) return@post
                 try {
-                    val value = getSystemService(MediaProjectionManager::class.java)
-                        .getMediaProjection(Activity.RESULT_OK, consent) ?: error("consent_required")
+                    if (!canCapture()) { finishCapture("capture_locked"); return@post }
+                    if (VideoControlBridge.link !== link) { finishCapture("control_unavailable"); return@post }
+                    val value = createProjection(consent)
                     projection = value
+                    // Observe revocation even before a viewer exists and before the first VD.
+                    value.registerCallback(projectionCallback, worker)
+                    if (ending) return@post
                     val metrics = resources.displayMetrics
-                    sender = NativeVideoSender(applicationContext, link, ::post) { finishCapture(it) }
+                    sender = createEngine(applicationContext, link, ::post) { finishCapture(it) }
                     sender!!.start(value, metrics.widthPixels, metrics.heightPixels, metrics.densityDpi)
-                    subscription = VideoControlBridge.subscribe(this)
-                    worker.post(stats)
+                    if (ending) return@post
+                    sender!!.viewerChanged(link.viewerReady)
+                    updateNotification()
+                    scheduleStats()
                 } catch (_: LinkageError) { finishCapture("native_unavailable") }
                 catch (_: Exception) { finishCapture("capture_unavailable") }
             }
@@ -80,19 +116,40 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
     private fun showForeground() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.video_channel), NotificationManager.IMPORTANCE_LOW))
+        val notification = notification(R.string.video_notification_preparing)
+        if (Build.VERSION.SDK_INT >= 29) startForeground(2, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        else startForeground(2, notification)
+    }
+    private fun notification(text: Int): Notification {
         val open = PendingIntent.getActivity(this, 10, Intent(this, VideoCaptureActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 11, Intent(this, VideoCaptureService::class.java).setAction(STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_satellite)
-            .setContentTitle(getString(R.string.video_title)).setContentText(getString(R.string.video_notification))
+        return Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_satellite)
+            .setContentTitle(getString(R.string.video_title)).setContentText(getString(text))
             .setContentIntent(open).setOngoing(true)
             .addAction(Notification.Action.Builder(null, getString(R.string.video_stop), stop).build()).build()
-        if (Build.VERSION.SDK_INT >= 29) startForeground(2, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        else startForeground(2, notification)
     }
+    private fun updateNotification() {
+        if (ending) return
+        val text = when (VideoState.status) {
+            "waiting_viewer" -> R.string.video_notification_waiting
+            "streaming" -> R.string.video_notification
+            else -> R.string.video_notification_preparing
+        }
+        if (text != notificationText) {
+            notificationText = text
+            getSystemService(NotificationManager::class.java).notify(2, notification(text))
+        }
+    }
+    private fun canCapture(): Boolean = getSystemService(PowerManager::class.java).isInteractive &&
+        !getSystemService(KeyguardManager::class.java).isDeviceLocked
     private fun post(action: () -> Unit) {
         if (!ending) worker.post { if (!ending) action() }
+    }
+    private fun scheduleStats() {
+        worker.removeCallbacks(stats)
+        if (!ending && owner?.viewerReady == true) worker.postDelayed(stats, 1000)
     }
     override fun linkChanged(link: VideoLink?) { post { if (owner !== link) finishCapture("control_unavailable") } }
     override fun signal(link: VideoLink, message: org.json.JSONObject) {
@@ -100,8 +157,15 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
         if (queued.incrementAndGet() > 32) { queued.decrementAndGet(); finishCapture("signalling_overflow"); return }
         worker.post {
             try { if (!ending && owner === link) {
-                if (message.optString("type") == "video.closed") finishCapture("viewer_closed")
-                else sender?.signal(message)
+                try {
+                    if (message.optString("type") in setOf("video.ready", "video.closed")) {
+                        if (!canCapture()) finishCapture("capture_locked")
+                        else sender?.viewerChanged(message.optString("type") == "video.ready" && link.viewerReady)
+                        updateNotification()
+                        scheduleStats()
+                    } else sender?.signal(message)
+                } catch (_: LinkageError) { finishCapture("native_unavailable") }
+                catch (_: Exception) { finishCapture("capture_unavailable") }
             } } finally { queued.decrementAndGet() }
         }
     }
@@ -114,9 +178,14 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
     override fun onDestroy() {
         ending = true
         subscription?.close(); subscription = null
+        if (screenReceiverRegistered) { unregisterReceiver(screenReceiver); screenReceiverRegistered = false }
         worker.removeCallbacks(stats)
         worker.post {
-            try { if (sender != null) sender?.close() else runCatching { projection?.stop() } } finally {
+            try {
+                runCatching { sender?.close() }
+                runCatching { projection?.unregisterCallback(projectionCallback) }
+                runCatching { projection?.stop() }
+            } finally {
                 sender = null
                 projection = null
                 owner = null

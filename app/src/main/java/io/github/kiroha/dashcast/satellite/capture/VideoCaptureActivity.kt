@@ -28,7 +28,7 @@ class VideoCaptureActivity : Activity() {
         override fun run() {
             render()
             if (launchDeadline != 0L) {
-                if (VideoState.status in setOf("negotiating", "connected_waiting_frames", "streaming")) {
+                if (VideoState.status in setOf("waiting_viewer", "negotiating", "connected_waiting_frames", "streaming")) {
                     launchDeadline = 0L; openChosen()
                 } else if (android.os.SystemClock.elapsedRealtime() >= launchDeadline || !(VideoState.active || VideoState.captureBusy)) {
                     launchDeadline = 0L
@@ -59,7 +59,7 @@ class VideoCaptureActivity : Activity() {
         findViewById<Button>(R.id.video_open_app).setOnClickListener { openChosen() }
         findViewById<Button>(R.id.video_start).setOnClickListener {
             val link = VideoControlBridge.link
-            if (link?.viewerReady != true || chosen == null || (VideoState.active || VideoState.captureBusy)) return@setOnClickListener
+            if (link == null || chosen == null || (VideoState.active || VideoState.captureBusy)) return@setOnClickListener
             try {
                 pendingGeneration = link.generation; consentPending = true
                 @Suppress("DEPRECATION")
@@ -101,14 +101,14 @@ class VideoCaptureActivity : Activity() {
         consentPending = false
         if (resultCode != RESULT_OK || data == null) { render(); return }
         val link = VideoControlBridge.link
-        if (link == null || !link.viewerReady || link.generation != pendingGeneration || (VideoState.active || VideoState.captureBusy)) {
-            toast(R.string.video_viewer_required); render(); return
+        if (link == null || link.generation != pendingGeneration || (VideoState.active || VideoState.captureBusy)) {
+            toast(R.string.video_connection_required); render(); return
         }
         try {
             VideoState.status = "starting"
             startForegroundService(Intent(this, VideoCaptureService::class.java).setAction(VideoCaptureService.START)
                 .putExtra(VideoCaptureService.CONSENT, data).putExtra(VideoCaptureService.GENERATION, link.generation))
-            // Open only once the foreground service, native encoder and capture actually exist.
+            // The foreground capture lease is enough; a shared central screen may hide the viewer.
             launchDeadline = android.os.SystemClock.elapsedRealtime() + 10_000
         } catch (_: Exception) { VideoState.status = "capture_unavailable"; toast(R.string.video_unavailable) }
         render()
@@ -130,20 +130,19 @@ class VideoCaptureActivity : Activity() {
         val link = VideoControlBridge.link
         findViewById<TextView>(R.id.video_status).setText(when {
             consentPending -> R.string.video_consent_pending
+            VideoState.status == "waiting_viewer" -> R.string.video_waiting_viewer
             VideoState.status == "streaming" -> R.string.video_streaming
             VideoState.status in setOf("starting", "negotiating", "connected_waiting_frames") -> R.string.video_connecting
-            VideoState.status == "viewer_closed" -> R.string.video_viewer_closed
             VideoState.status == "control_unavailable" -> R.string.video_control_lost
             VideoState.status == "receiver_address_unsupported" -> R.string.video_address_unsupported
             VideoState.status != "stopped" -> R.string.video_restart_required
             link == null -> R.string.video_connection_required
-            !link.viewerReady -> R.string.video_viewer_required
             else -> R.string.video_ready
         })
         findViewById<TextView>(R.id.video_metrics).text = VideoState.metrics
         findViewById<Button>(R.id.video_choose).isEnabled = !(VideoState.active || VideoState.captureBusy) && !consentPending
         findViewById<Button>(R.id.video_open_app).isEnabled = chosen != null && !consentPending
-        findViewById<Button>(R.id.video_start).isEnabled = chosen != null && link?.viewerReady == true && !(VideoState.active || VideoState.captureBusy) && !consentPending
+        findViewById<Button>(R.id.video_start).isEnabled = chosen != null && link != null && !(VideoState.active || VideoState.captureBusy) && !consentPending
         findViewById<Button>(R.id.video_stop).isEnabled = (VideoState.active || VideoState.captureBusy)
     }
     private fun toast(resource: Int) { Toast.makeText(this, resource, Toast.LENGTH_LONG).show() }

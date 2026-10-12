@@ -109,7 +109,11 @@ to investigate on the device, not proof of actual route progress.
 ## Second milestone: video (experimental)
 
 Follow [EXTERNAL_VIDEO.md](EXTERNAL_VIDEO.md): capture consent, map displayed on the cluster, viewer closure,
-capture stop, reconnection, and renewed consent when required. Record the codec, resolution/frame
+capture stop, reconnection, and renewed consent when required. In particular, test the same central
+screen: Start sharing on Tbox while no DashCast viewer is visible, leave CarPlay, open Preview, then
+switch away and back. The ongoing authorized session waits/resumes; Stop, revoke, lock and WSS loss
+require a new consent. Verify the waiting notification and its Stop action before any viewer opens.
+This shared-screen video path remains pending on the actual parked vehicle. Record the codec, resolution/frame
 rate, screen-to-cluster latency, CPU/GPU, temperature, and Overdrive frame drops.
 Final acceptance requires the actual vehicle, sources that stop correctly, and normal DashCast
 operation preserved when the satellite is disabled.

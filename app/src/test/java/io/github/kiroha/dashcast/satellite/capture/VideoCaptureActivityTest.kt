@@ -3,6 +3,9 @@ package io.github.kiroha.dashcast.satellite.capture
 import android.app.Activity
 import android.content.Intent
 import android.os.Looper
+import android.widget.Button
+import android.widget.TextView
+import java.time.Duration
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -52,6 +55,32 @@ class VideoCaptureActivityTest {
         assertSame(current, VideoControlBridge.link)
         VideoControlBridge.receive(old, org.json.JSONObject().put("type", "video.ready"))
         assertFalse(current.viewerReady)
+    }
+    @Test fun `authenticated connection enables Start without any visible viewer`() {
+        val controller = Robolectric.buildActivity(VideoCaptureActivity::class.java).setup()
+        val activity = controller.get()
+        VideoControlBridge.connected(link(101))
+        ReflectionHelpers.setField(activity, "chosen", activity.packageName)
+        ReflectionHelpers.callInstanceMethod<Void>(activity, "render")
+        assertTrue(activity.findViewById<Button>(R.id.video_start).isEnabled)
+        assertFalse(activity.findViewById<Button>(R.id.video_stop).isEnabled)
+        controller.pause().stop().destroy()
+    }
+    @Test fun `consent while viewer absent starts service and opens selected app from waiting state`() {
+        val controller = Robolectric.buildActivity(VideoCaptureActivity::class.java).setup()
+        val activity = controller.get()
+        VideoControlBridge.connected(link(101))
+        ReflectionHelpers.setField(activity, "pendingGeneration", 101L)
+        ReflectionHelpers.setField(activity, "chosen", activity.packageName)
+        result(activity, Activity.RESULT_OK, Intent())
+        assertEquals(VideoCaptureService::class.java.name, shadowOf(activity).nextStartedService.component?.className)
+        VideoState.status = "waiting_viewer"; VideoState.captureBusy = true
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+        assertTrue(activity.findViewById<Button>(R.id.video_stop).isEnabled)
+        assertFalse(activity.findViewById<Button>(R.id.video_start).isEnabled)
+        assertTrue(activity.findViewById<TextView>(R.id.video_status).text.toString().contains("waiting for DashCast"))
+        assertNotNull("Waiting capture must launch the chosen app before any video.ready", shadowOf(activity).nextStartedActivity)
+        controller.pause().stop().destroy()
     }
     private fun result(activity: VideoCaptureActivity, code: Int, intent: Intent?) {
         ReflectionHelpers.callInstanceMethod<Void>(activity, "onActivityResult",

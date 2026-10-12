@@ -29,6 +29,7 @@ internal class ProjectionTextureCapturer(
     private var valid = true
     private var observedTexture = false
     private var lastOutputNs = 0L
+    private var deliveryEnabled = false
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() { valid = false; stopped("capture_revoked") }
         override fun onCapturedContentResize(width: Int, height: Int) {
@@ -39,14 +40,14 @@ internal class ProjectionTextureCapturer(
             valid = isVisible
             helper.handler.removeCallbacks(hiddenDeadline)
             helper.handler.removeCallbacks(repeat)
-            if (isVisible) helper.handler.postDelayed(repeat, 500)
-            else helper.handler.postDelayed(hiddenDeadline, 5000)
+            if (isVisible && deliveryEnabled) helper.handler.postDelayed(repeat, 500)
+            else if (!isVisible) helper.handler.postDelayed(hiddenDeadline, 5000)
         }
     }
     private val hiddenDeadline = Runnable { if (!closed.get() && !valid) stopped("capture_hidden") }
     private val repeat = object : Runnable {
         override fun run() {
-            if (closed.get() || !valid || display == null) return
+            if (closed.get() || !valid || !deliveryEnabled || display == null) return
             // A static map still needs decoded frames. Read the live SurfaceTexture again, rather
             // than retaining a buffer (which would prevent SurfaceTextureHelper receiving updates).
             if (observedTexture && surface?.isValid == true) helper.forceFrame()
@@ -64,6 +65,7 @@ internal class ProjectionTextureCapturer(
             helper.startListening { frame ->
                 if (!closed.get() && valid) {
                     observedTexture = true
+                    if (!deliveryEnabled) return@startListening
                     val now = System.nanoTime()
                     if (now - lastOutputNs >= 1_000_000_000L / VideoPolicy.FPS) {
                         lastOutputNs = now
@@ -82,7 +84,18 @@ internal class ProjectionTextureCapturer(
                     override fun onStopped() { valid = false; if (!closed.get()) stopped("capture_stopped") }
                 }, helper.handler) ?: error("capture_unavailable")
             observer.onCapturerStarted(true)
-            helper.handler.postDelayed(repeat, 500)
+            if (deliveryEnabled) helper.handler.postDelayed(repeat, 500)
+        })
+    }
+    fun setDeliveryEnabled(enabled: Boolean) {
+        ThreadUtils.invokeAtFrontUninterruptibly(helper.handler, Runnable {
+            if (closed.get()) return@Runnable
+            deliveryEnabled = enabled
+            lastOutputNs = 0L
+            // The same continuously valid VD/surface supplies current textures. No buffer is
+            // retained while waiting; forceFrame also keeps a static live map available on resume.
+            helper.handler.removeCallbacks(repeat)
+            if (enabled && valid) helper.handler.postDelayed(repeat, 500)
         })
     }
     private fun resize(width: Int, height: Int) {

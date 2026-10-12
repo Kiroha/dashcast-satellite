@@ -9,32 +9,51 @@ existing cluster projection displays it; it is not a zero-cost compressed-video 
 ## Setup while parked
 
 1. Start the existing DashSat connection. Notification access is needed for guidance, not video.
-2. In DashCast, open **Preview received map**, or **Show on cluster** after its existing cluster
-   projection is already ready. This does not start a new OEM projection or restore an OEM display.
-3. In DashSat, open **Video projection · experimental**, choose an application, then **Start video sharing**.
-4. Accept Android's fresh screen sharing dialog. On Android 14+, select the same app in Android's
+2. In DashSat, open **Video projection · experimental**, choose an application, then **Start video sharing**.
+3. Accept Android's fresh screen sharing dialog. On Android 14+, select the same app in Android's
    app-sharing chooser. The app selected for launch is not proof of which app Android shares.
    Android versions before app sharing mirror the box display. The selected app opens on the box
-   after foreground capture has started. **Open selected app** is also available manually.
-5. Check the received image on the main display before using the existing cluster route.
-6. Use **Stop video sharing** or the foreground notification's Stop action while the app is open.
+   after the foreground sharing session is authorized, even if no DashCast viewer is visible.
+   **Open selected app** is also available manually.
+4. If CarPlay and DashCast use the same car screen, leave CarPlay and return to DashCast. Open
+   **Preview received map**; video starts when that viewer becomes ready. **Show on cluster** is
+   also available after its existing projection is already ready. It does not start a new OEM
+   projection or restore an OEM display. Check the main-display image before using the cluster route.
+5. Use **Stop video sharing** or the foreground notification's Stop action while the app is open.
+
+A visible viewer is not required to grant sharing. **Screen sharing active · waiting for DashCast**
+means the foreground Android capture session remains authorized, but no video is being sent.
+Stop remains available. The notification distinguishes waiting from preparing/sending video.
 
 Capture can include personal content. Secure/DRM content may appear blank. No camera, microphone,
 audio/data channel, remote input, hidden independent app display, unattended consent reuse or boot
 capture is implemented. Keep interaction on the box/main display. OEM alerts and restrictions still
 apply; neither connected video nor guidance establishes that the vehicle is parked.
 
-Video, WSS control and guidance have separate state. Closing the viewer, loss of control/LAN,
-capture revocation/pause, or persistently hidden shared content terminates capture and frees the
-encoder/peer/VirtualDisplay. Guidance reconnects through its existing service. Video requires a new
-user-consented session. Within one valid capture, at most two new negotiation IDs may recover a
-viewer error; a new `video.ready` is not required for that already-open viewer.
+Video, WSS control and guidance have separate state. Hiding/closing the DashCast viewer releases
+its decoder and the sender's peer/encoder, suspends texture forwarding and static refresh, and leaves
+this continuous, user-authorized Android capture session waiting. Reopening the viewer creates a
+fresh peer/negotiation ID using the same MediaProjection and, once created, the same VirtualDisplay.
+It never calls `getMediaProjection` again or creates a second VirtualDisplay from that consent.
+Before the first viewer is ready, native video resources and the VirtualDisplay are deferred;
+a projection callback observes revocation throughout the initial waiting period.
+
+Control/LAN loss or replacement of the authenticated WSS generation, lock/screen-off, capture
+revocation/pause, persistently hidden shared source content, Stop or a fatal video failure ends the
+session and frees projection/encoder/peer/VirtualDisplay. A new Android user consent is then required.
+Receiver visibility and captured source visibility are separate: hiding the receiver does not permit
+replaying hidden/revoked source content. Guidance reconnects through its existing service. Within
+one valid capture, at most two new negotiation IDs per visible-viewer period may recover a viewer
+error; a new `video.ready` is not required for that already-open viewer.
 
 ## Resource and network bounds
 
 Defaults: up to **960×540, 15 fps, 1.5 Mbps**, one track. Actual dimensions preserve source aspect
 ratio and never enlarge a smaller source. H.264 is preferred among the box's hardware encoders.
-No software encoder fallback is enabled. Static live content refreshes twice per second without
+No software encoder fallback is enabled. Waiting has no peer, encoding, ICE, encoder watchdog or
+native stats requests; the stats timer is inactive. After the first activation, retaining the same
+VirtualDisplay may still incur box composition work while waiting; zero box GPU use is not promised.
+Static live content refreshes twice per second while a viewer is ready, without
 holding a texture buffer, so the receiver can observe decoded-frame progress beyond six seconds.
 Visibility/pause/revocation callbacks and the live surface/VirtualDisplay bound this refresh. A
 firmware capture stall that leaves all platform callbacks falsely active cannot be distinguished
@@ -79,7 +98,11 @@ Use identical route/scenario, display brightness, Overdrive settings and ambient
 
 Record exact vehicle model/ROM/API/WebView version, box firmware/API, APK versions and negotiated
 codec. Test static maps for over a minute, moving content, app sharing resize/rotation, viewer closure,
-capture Stop, Android revoke/lock, Wi-Fi loss/recovery, and repeated consent sessions. Stop/revoke must
+capture Stop, Android revoke/lock (including before the first viewer), Wi-Fi loss/recovery, and
+repeated consent sessions. Test the actual shared-screen order: consent on the box with no visible
+viewer, launch the chosen app, leave CarPlay, open Preview, return to CarPlay, then reopen Preview
+without granting another consent while the same session remains valid. No session may resume after
+Stop, revoke, lock or control loss. Stop/revoke must
 release actual MediaProjection, virtual display, peer, codec, texture helper and service, with no stale
 image. Cluster projection teardown must close its viewer without changing OEM restoration behavior.
 Retest guidance alongside video and with satellite disabled. All vehicle video/performance results

@@ -4,7 +4,6 @@ import android.content.Context
 import android.media.projection.MediaProjection
 import org.json.JSONObject
 import org.webrtc.*
-import java.io.Closeable
 import java.util.UUID
 
 /** All methods/callbacks are serialized by the capture service worker, never the UI thread. */
@@ -13,7 +12,8 @@ internal class NativeVideoSender(
     private val link: VideoLink,
     private val post: (() -> Unit) -> Unit,
     private val failed: (String) -> Unit,
-) : Closeable {
+    private val active: () -> Boolean = { true },
+) : VideoCaptureEngine {
     private var egl: EglBase? = null
     private var helper: SurfaceTextureHelper? = null
     private var factory: PeerConnectionFactory? = null
@@ -29,8 +29,28 @@ internal class NativeVideoSender(
     private var statsPending = false
     private var lastBytes = 0L
     private var lastStatsUs = 0.0
-    fun start(projection: MediaProjection, width: Int, height: Int, density: Int) {
+    private var width = 0
+    private var height = 0
+    private var density = 0
+    private val viewerSession = ViewerCaptureSession(
+        initialize = { initializeCapture() },
+        resume = { retries = 0; capture?.setDeliveryEnabled(true); track?.setEnabled(true); negotiate() },
+        pause = { track?.setEnabled(false); capture?.setDeliveryEnabled(false); disposePeer() },
+        waiting = { if (active()) { VideoState.status = "waiting_viewer"; VideoState.metrics = "" } },
+        isReady = { !closed && active() && link.viewerReady && VideoControlBridge.link === link },
+    )
+    override fun start(projection: MediaProjection, width: Int, height: Int, density: Int) {
         this.projection = projection
+        this.width = width; this.height = height; this.density = density
+        // No native factory, texture, encoder, ICE or VD until the first visible viewer.
+        viewerSession.reconcile()
+    }
+    override fun viewerChanged(ready: Boolean) {
+        // A closed event always fences the old peer, even if a newer ready is already queued.
+        if (!ready) viewerSession.viewerClosed() else viewerSession.reconcile()
+    }
+    private fun initializeCapture() {
+        val projection = checkNotNull(projection)
         initializeNative(context)
         NetworkMonitor.getInstance().setNetworkChangeDetectorFactory(LanNetworkDetector.factory(link.lan))
         val base = EglBase.create().also { egl = it }
@@ -50,10 +70,9 @@ internal class NativeVideoSender(
             resized = { w, h -> source?.adaptOutputFormat(w, h, VideoPolicy.FPS) }
         )
         capture!!.start(width, height)
-        negotiate()
     }
     private fun negotiate() {
-        if (closed || !link.viewerReady || VideoControlBridge.link !== link) return
+        if (closed || !active() || !link.viewerReady || VideoControlBridge.link !== link) return
         disposePeer()
         val current = VideoNegotiation(UUID.randomUUID().toString()).also { attempt = it }
         val config = PeerConnection.RTCConfiguration(emptyList()).apply {
@@ -114,10 +133,9 @@ internal class NativeVideoSender(
             }), description)
         }), MediaConstraints())
     }
-    fun signal(message: JSONObject) {
+    override fun signal(message: JSONObject) {
         val current = attempt ?: return
         val type = message.optString("type")
-        if (type == "video.closed") { failed("viewer_closed"); return }
         if (message.optString("negotiation") != current.id || !owns(current)) return
         try {
             when (type) {
@@ -151,7 +169,7 @@ internal class NativeVideoSender(
     private fun send(raw: String, current: VideoNegotiation) {
         link.send(JSONObject(raw)) { success -> post { if (owns(current) && !success) failed("control_unavailable") } }
     }
-    private fun owns(value: VideoNegotiation) = !closed && attempt === value && !value.closed && VideoControlBridge.link === link
+    private fun owns(value: VideoNegotiation) = !closed && active() && link.viewerReady && attempt === value && !value.closed && VideoControlBridge.link === link
     private fun sdpObserver(current: VideoNegotiation, created: (SessionDescription) -> Unit = {}, applied: () -> Unit = {}) =
         object : SdpObserver {
             override fun onCreateSuccess(description: SessionDescription) { post { if (owns(current)) runGuarded { created(description) } } }
@@ -160,7 +178,8 @@ internal class NativeVideoSender(
             override fun onSetFailure(error: String) { post { if (owns(current)) failed("negotiation_failed") } }
         }
     private fun runGuarded(action: () -> Unit) { try { action() } catch (_: Exception) { failed("negotiation_failed") } }
-    fun collectStats() {
+    override fun collectStats() {
+        if (!link.viewerReady || VideoControlBridge.link !== link) { viewerSession.reconcile(); return }
         frameWatchdog?.failure(System.nanoTime())?.let { failed(it); return }
         val connection = peer ?: return
         val current = attempt ?: return
@@ -196,6 +215,7 @@ internal class NativeVideoSender(
     override fun close() {
         if (closed) return
         closed = true
+        viewerSession.close()
         disposePeer()
         if (capture != null) runCatching { capture?.close() } else runCatching { projection?.stop() }
         capture = null; projection = null

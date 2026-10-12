@@ -100,7 +100,8 @@ One `app` module, with the `pairing`, `transport`, `navigation`, and `capture` p
   and a stop when the source is lost or guidance is unusable. Active system notifications are
   observed again every second; no timer makes old cached content appear fresh.
 - `capture`: a consent-driven MediaProjection foreground service and pinned native hardware WebRTC
-  sender; one LAN video track, no automatic capture resume or remote input.
+  sender; one LAN video track, continuous authorized waiting across viewer visibility changes,
+  no automatic restart after capture ends or remote input.
 
 The [v1 contract](protocol/v1/PROTOCOL_V1.md) and its fixtures are copied unchanged from
 `Kiroha/byd-dashcast` at commit `2ec7d544044838ca5de365adf954d695779dd172`.
@@ -129,7 +130,9 @@ on the companion. Start at 960×540 / 15 fps / 1.5 Mbps and measure car decoding
 Overdrive before claiming a CPU/GPU reduction. See [setup and performance gates](docs/EXTERNAL_VIDEO.md)
 and [native dependency pin/ABI impact](docs/WEBRTC_DEPENDENCY.md).
 Capture does not create an independent invisible display or authorize input injection.
-Video always requires fresh consent after its capture session stops.
+Sharing can start before the DashCast viewer opens, allowing CarPlay and DashCast to use the same
+car screen. A hidden viewer pauses video within the ongoing authorized sharing session; returning to
+DashCast resumes with a fresh peer. Video always requires fresh consent after its capture session stops.
 
 Android references used: [connectedDevice services](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device),
 [listener lifecycle](https://developer.android.com/reference/android/service/notification/NotificationListenerService),

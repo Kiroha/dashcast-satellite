@@ -118,7 +118,7 @@ internal object ConservativeGuidanceParser {
         if (directions.size != 1) return ParseResult.Unsupported
 
         val hasRoundabout = lines.any(roundaboutWords::containsMatchIn)
-        val maneuver = directions.single()
+        var maneuver = directions.single()
         if (stripped.any(exitEvent::containsMatchIn) && !maneuver.startsWith("roundabout_")) {
             return ParseResult.Unsupported
         }
@@ -128,7 +128,14 @@ internal object ConservativeGuidanceParser {
             return ParseResult.Unsupported
         }
         val exit = if (maneuver.startsWith("roundabout_")) {
-            NavTextParsers.roundaboutExit(lines.joinToString("\n")) ?: return ParseResult.Unsupported
+            when (val extracted = NavTextParsers.roundaboutExitState(lines.joinToString("\n"))) {
+                is NavTextParsers.Exit.Known -> extracted.number
+                NavTextParsers.Exit.Invalid -> return ParseResult.Unsupported
+                NavTextParsers.Exit.Absent -> {
+                    maneuver = if (maneuver == "roundabout_cw") "roundabout_generic_cw" else "roundabout_generic_ccw"
+                    null
+                }
+            }
         } else null
 
         // Do not borrow a route-summary distance from subText, nor arbitrary text containing a

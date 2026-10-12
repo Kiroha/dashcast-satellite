@@ -57,8 +57,56 @@ class MapsImageGuidanceTest {
         assertEquals(300, inline.guidance.distanceMeters)
     }
 
-    @Test fun `absent invalid fractional or contradictory exits never acquire a guessed number`() {
-        for (text in listOf("Example Road", "At the roundabout", "11th exit", "0th exit", "exit -1",
+    @Test fun `absent exit retains only observed circulation and does not invent an exit`() {
+        for (direction in listOf("cw", "ccw")) for (text in listOf("Example Road", "At the roundabout", "N59 Example Road")) {
+            val guidance = (maps.parse(notification("roundabout_$direction", text = text)) as ParseResult.Valid).guidance
+            assertEquals("roundabout_generic_$direction", guidance.maneuver)
+            assertNull(guidance.exit)
+            val wire = JSONObject(requireNotNull(NavigationWire.encode(Observation.Valid(guidance, 0), 0, 0,
+                genericRoundabouts = true)))
+            assertFalse(wire.has("exit"))
+            assertEquals(guidance.maneuver, wire.getString("maneuver"))
+        }
+        assertEquals(ParseResult.Unsupported, maps.parse(notification(null, text = "At the roundabout")))
+        assertEquals(ParseResult.Unsupported, maps.parse(notification("roundabout_ccw", title = "", text = "Example Road")))
+    }
+
+    @Test fun `French numeric and spelled ordinals retain the correct observed exit`() {
+        for ((text, exit) in listOf("1ère sortie" to 1, "1ere sortie" to 1, "première sortie" to 1,
+            "premiere sortie" to 1, "deuxième sortie" to 2, "2ème sortie" to 2,
+            "Au rond-point, prendre la troisième sortie" to 3, "dixième sortie" to 10)) {
+            val guidance = (maps.parse(notification("roundabout_ccw", text = text)) as ParseResult.Valid).guidance
+            assertEquals(text, exit, guidance.exit)
+            assertEquals("roundabout_ccw", guidance.maneuver)
+        }
+        val evaluator = NavigationSnapshotEvaluator()
+        val generic = evaluator.evaluate(NavigationSource.MAPS, listOf(notification("roundabout_cw")), 100)
+        assertEquals(SourceStatus.ACTIVE, generic.status)
+        assertTrue(generic.observation is Observation.Valid)
+        val following = evaluator.evaluate(NavigationSource.MAPS, listOf(notification("left")), 200)
+        assertEquals("left", (following.observation as Observation.Valid).guidance.maneuver)
+        assertEquals(200L, following.observation.observedAtElapsedMs)
+    }
+
+    @Test fun `route connectors after a known ordinal never invalidate the numbered maneuver`() {
+        for (text in listOf("At the roundabout take the 3rd exit toward Paris",
+            "At the roundabout take the 3rd exit north", "At the roundabout take the 3rd exit with signs for Paris",
+            "Au rond-point prendre la troisième sortie direction Paris",
+            "Au rond-point prendre la 3e sortie rue Example")) {
+            val guidance = (maps.parse(notification("roundabout_ccw", text = text)) as ParseResult.Valid).guidance
+            assertEquals(text, 3, guidance.exit)
+            assertEquals("roundabout_ccw", guidance.maneuver)
+        }
+    }
+
+    @Test fun `invalid fractional or contradictory exits never become generic or acquire a guessed number`() {
+        for (text in listOf("11th exit", "eleventh exit", "onzième sortie", "0th exit", "exit -1",
+                "twelfth exit", "exit twelfth", "douzième sortie", "sortie douzième",
+                "3e sortie puis douzième sortie", "exit - 1", "sortie + 2", "exit nonsense",
+                "3e sortie douzième", "twelfth exit 3",
+                "twenty first exit", "twenty-first exit", "twenty third exit", "one hundred and first exit",
+                "vingt première sortie", "vingt et première sortie", "- 1st exit",
+                "twenty exit 3", "vingt sortie 3",
                 "exit 999999999999999999999", "1.5th exit", "exit 1.5", "exit 1A", "3rd exit then 4th exit",
                 "11th exit then 3rd exit", "exit 1.5 then exit 3", "exit 1 003", "1 003rd exit",
                 "1\u202f003rd exit", "exit 1\u00a0003", "exit 1\t003")) {

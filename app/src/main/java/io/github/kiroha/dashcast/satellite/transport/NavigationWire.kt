@@ -8,9 +8,14 @@ internal object NavigationWire {
     const val MAX_AGE_MS = 1_500L
     const val MAX_BYTES = 65_536
     private val maneuvers = setOf("left", "right", "slight_left", "slight_right", "sharp_left", "sharp_right",
-        "uturn_left", "uturn_right", "straight", "destination", "roundabout_cw", "roundabout_ccw")
+        "uturn_left", "uturn_right", "straight", "destination", "roundabout_cw", "roundabout_ccw",
+        "roundabout_generic_cw", "roundabout_generic_ccw")
 
-    fun encode(observation: Observation, sequence: Long, nowMs: Long): String? {
+    /** Optional additive capability. Strings, numbers, null and absence never opt a peer in. */
+    fun supportsGenericRoundabouts(welcome: JSONObject): Boolean = welcome.opt("genericRoundabouts") == true
+
+    fun encode(observation: Observation, sequence: Long, nowMs: Long,
+               genericRoundabouts: Boolean = false): String? {
         if (nowMs < observation.observedAtElapsedMs) return null
         val age = nowMs - observation.observedAtElapsedMs
         if (age !in 0..MAX_AGE_MS) return null
@@ -29,7 +34,15 @@ internal object NavigationWire {
                 g.etaMinute?.let { json.put("etaMinute", it) }
             }
         }
-        return try { validate(json); json.toString() } catch (_: Exception) { null }
+        return try {
+            validate(json)
+            // An old receiver clears its previous turn immediately. Validate the source first,
+            // preserve real age/sequence, and disclose no route fields in the downgraded stop.
+            if (observation is Observation.Valid &&
+                observation.guidance.maneuver.startsWith("roundabout_generic_") && !genericRoundabouts) {
+                JSONObject().put("type", "navigation.stop").put("seq", sequence).put("ageMs", age).toString()
+            } else json.toString()
+        } catch (_: Exception) { null }
     }
 
     /** Runs the pinned receiver fixtures against the sender's boundary as well. */
@@ -41,7 +54,8 @@ internal object NavigationWire {
         require(json.get("type") == "navigation.update")
         val maneuver = json.get("maneuver")
         require(maneuver is String && maneuver in maneuvers)
-        if (maneuver.startsWith("roundabout_")) integer(json, "exit", 1, 10)
+        if (maneuver.startsWith("roundabout_generic_")) require(!json.has("exit"))
+        else if (maneuver.startsWith("roundabout_")) integer(json, "exit", 1, 10)
         integer(json, "distanceMeters", 0, 1_000_000)
         val road = if (json.has("roadName")) json.get("roadName") else ""
         require(road is String && road.length <= 160 && road.none { it.isISOControl() })
@@ -74,12 +88,12 @@ internal class LatestGuidance {
         revision++
     }
 
-    @Synchronized fun next(nowMs: Long): String? {
+    @Synchronized fun next(nowMs: Long, genericRoundabouts: Boolean = false): String? {
         val observation = current ?: return null
         if (revision == sentRevision) return null
         sentRevision = revision
         if (sequence == Long.MAX_VALUE) throw IllegalStateException("Sequence exhausted")
-        val message = NavigationWire.encode(observation, sequence, nowMs) ?: return null
+        val message = NavigationWire.encode(observation, sequence, nowMs, genericRoundabouts) ?: return null
         sequence++
         return message
     }

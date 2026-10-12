@@ -40,6 +40,13 @@ not portable to the regular Android 15 companion; DashSat retains granted-access
 traffic-side override is local rendering policy, explicitly excluded from source snapshots and
 protocol v1; DashSat continues to transmit observed circulation and an explicit exit.
 
+The subsequent generic-roundabout extension is capability-negotiated within v1. A known
+circulation with an absent exit remains active without inventing an ordinal; only the literal
+authenticated welcome capability enables its new generic maneuver names. Older receivers get a
+fresh ordered stop. French numeric/spelled ordinals are extracted beside `sortie`, while every
+explicit invalid, out-of-range or contradictory exit clause remains unsupported. This extension
+preserves the 0.8.0 video waiting/sharing behavior and changes no capture or listener lifecycle.
+
 No listener code update is required at this checkpoint. Real Tbox guidance, source-stop clearing
 and recovery still require the vehicle checks in `CARLINKIT_VALIDATION.md`; source review and JVM
 tests do not establish hardware acceptance.
@@ -81,9 +88,10 @@ the listener never opens URI images, retains source bitmaps or logs their conten
 use text parsing only because public Icon type/resource accessors require Android 9.
 
 Satellite emits portable v1 maneuvers instead of upstream OEM codes. Roundabout images supply
-circulation only: a consistent explicit exit 1–10 must be present in that same notification.
-An angle is never converted into an exit number. Missing, fractional, contradictory or out-of-range
-exits remain unsupported. Merge masks remain rejecting competitors because v1 has no merge maneuver;
+circulation only: a consistent explicit exit 1–10 in that notification yields a numbered maneuver;
+an absent exit yields an honest generic maneuver for capable receivers. An angle is never converted
+into an exit number. Fractional, contradictory, malformed or out-of-range explicit exits remain
+unsupported. Merge masks remain rejecting competitors because v1 has no merge maneuver;
 visually ambiguous images must not become a turn. Explicit resource, image and text directions must
 agree. An unknown image may fall back to independently valid explicit text. Maneuver distance still
 comes from an instruction or a distance-only field, never from route-summary text or a road number.

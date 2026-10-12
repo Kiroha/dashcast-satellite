@@ -18,7 +18,7 @@ class NavigationWireTest {
 
     @Test fun `pinned receiver compatibility fixtures are unchanged and executed`() {
         val bytes = javaClass.getResourceAsStream("/v1/navigation-fixtures.json")!!.use { it.readBytes() }
-        assertEquals("bbcb44f07c9ce6b6620cbeff56b44be7a1c0b7dbc0c1f25aef84960abf0e8f58",
+        assertEquals("ccf14b618bfbbe09af7ddbc9f3d1d7e778f9c6102ca5b0932daab9fb027be2bc",
             MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) })
         val fixture = JSONObject(String(bytes, Charsets.UTF_8))
         assertEquals(1, fixture.getInt("version"))
@@ -75,6 +75,48 @@ class NavigationWireTest {
         assertNull(NavigationWire.encode(valid(0, -1), 1, 0))
         assertNotNull(NavigationWire.encode(valid(0), 1, 1_500))
         assertNull(NavigationWire.encode(valid(0), 1, 1_501))
+    }
+
+    @Test fun `generic roundabouts require a strict capability and downgrade to a fresh ordered stop`() {
+        for (value in listOf(null, JSONObject.NULL, false, "true", 1, JSONObject())) {
+            val welcome = JSONObject().apply { if (value != null) put("genericRoundabouts", value) }
+            assertFalse(NavigationWire.supportsGenericRoundabouts(welcome))
+        }
+        assertTrue(NavigationWire.supportsGenericRoundabouts(JSONObject().put("genericRoundabouts", true)))
+        val observation = Observation.Valid(Guidance("roundabout_generic_ccw", 80), 100)
+        val update = JSONObject(NavigationWire.encode(observation, 8, 135, genericRoundabouts = true)!!)
+        assertEquals("navigation.update", update.getString("type"))
+        assertFalse(update.has("exit"))
+        val stop = JSONObject(NavigationWire.encode(observation, 8, 135)!!)
+        assertEquals("navigation.stop", stop.getString("type"))
+        assertEquals(8L, stop.getLong("seq"))
+        assertEquals(35L, stop.getLong("ageMs"))
+        assertEquals(3, stop.length())
+        val queue = LatestGuidance()
+        queue.offer(valid(100))
+        assertEquals(0L, JSONObject(queue.next(100)!!).getLong("seq"))
+        queue.offer(observation)
+        assertEquals("navigation.stop", JSONObject(queue.next(135)!!).getString("type"))
+        queue.offer(valid(200))
+        assertEquals(2L, JSONObject(queue.next(200)!!).getLong("seq"))
+        queue.newSession()
+        queue.offer(observation)
+        assertNull(queue.next(1601, genericRoundabouts = true))
+    }
+
+    @Test fun `generic frames with explicit exits remain invalid even for older receivers`() {
+        for (exit in listOf(JSONObject.NULL, 0, 1, 10, 11, "1", true)) {
+            val json = JSONObject().put("type", "navigation.update").put("seq", 0).put("ageMs", 0)
+                .put("maneuver", "roundabout_generic_cw").put("distanceMeters", 50).put("exit", exit)
+            try { NavigationWire.validate(json); fail("generic exit accepted") }
+            catch (_: IllegalArgumentException) {} catch (_: org.json.JSONException) {}
+        }
+        for (capable in listOf(false, true)) {
+            assertNull(NavigationWire.encode(Observation.Valid(Guidance("roundabout_generic_cw", 50, exit = 1), 0),
+                0, 0, capable))
+            assertNull(NavigationWire.encode(Observation.Valid(Guidance("roundabout_generic_cw", -1), 0),
+                0, 0, capable))
+        }
     }
 
     @Test fun `reconnect backoff increases is bounded and resets after stable session`() {

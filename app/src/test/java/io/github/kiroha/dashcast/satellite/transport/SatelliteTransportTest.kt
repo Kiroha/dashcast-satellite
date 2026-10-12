@@ -7,6 +7,7 @@ import io.github.kiroha.dashcast.satellite.capture.VideoControlBridge
 import io.github.kiroha.dashcast.satellite.capture.VideoSignallingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import io.github.kiroha.dashcast.satellite.navigation.Observation
+import io.github.kiroha.dashcast.satellite.navigation.Guidance
 import android.net.IpPrefix
 import android.net.LinkProperties
 import android.net.NetworkCapabilities
@@ -49,6 +50,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.SocketFactory
@@ -144,6 +146,41 @@ class SatelliteTransportTest {
             triedIpv6.await(500, TimeUnit.MILLISECONDS)
             assertEquals(listOf("127.0.0.1"), attempted.toList())
         } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)) }
+    }
+
+    @Test fun `authenticated welcome capabilities are strict and reset on every new connection`() {
+        configureLan { Socket() }
+        val connected = LinkedBlockingQueue<TransportStatus>()
+        val stopped = CountDownLatch(1)
+        val server = TestReceiver(sendWelcome = true)
+        val transport = SatelliteTransport(app, {
+            if (it.state == TransportState.CONNECTED) connected.offer(it)
+            if (it.state == TransportState.STOPPED) stopped.countDown()
+        }, { 135L })
+        try {
+            server.startAndAwait()
+            val pairing = profile(server.port, listOf("127.0.0.1"))
+            // The first capable session must not leak its capability into the next connection.
+            for (capability in listOf(true, null, "true", 1, JSONObject.NULL, false, true)) {
+                server.genericCapability.set(capability)
+                transport.start(pairing)
+                assertNotNull("No authenticated connection", connected.poll(5, TimeUnit.SECONDS))
+                transport.offer(Observation.Valid(Guidance("roundabout_generic_ccw", 40), 100))
+                val frame = server.navigation.poll(3, TimeUnit.SECONDS)!!
+                assertEquals(if (capability == true) "navigation.update" else "navigation.stop", frame.getString("type"))
+                assertEquals(0L, frame.getLong("seq"))
+                assertEquals(35L, frame.getLong("ageMs"))
+                assertFalse(frame.has("exit"))
+                transport.offer(Observation.Valid(Guidance("left", 130), 100))
+                val following = server.navigation.poll(3, TimeUnit.SECONDS)!!
+                assertEquals("left", following.getString("maneuver"))
+                assertEquals(1L, following.getLong("seq"))
+            }
+        } finally {
+            transport.stop()
+            assertTrue(stopped.await(3, TimeUnit.SECONDS))
+            server.stopQuietly()
+        }
     }
 
     @Test fun `current IPv4 hotspot gateway reconnects under the saved pin after an address change`() {
@@ -426,6 +463,8 @@ class SatelliteTransportTest {
         val received = CopyOnWriteArrayList<String>()
         val requestedSubprotocol = AtomicReference<String>()
         val errorType = AtomicReference<String>()
+        val genericCapability = AtomicReference<Any?>()
+        val navigation = LinkedBlockingQueue<JSONObject>()
         init {
             setWebSocketFactory(DefaultSSLWebSocketServerFactory(serverContext()))
             isDaemon = true
@@ -440,7 +479,13 @@ class SatelliteTransportTest {
             received.add(message)
             if (JSONObject(message).getString("type") == "hello") {
                 hello.set(message)
-                if (sendWelcome) connection.send("""{"type":"welcome","version":1,"session":"test-session","navigationTimeoutMs":6000,"remoteGuidance":true,"videoTransport":"webrtc"}""")
+                if (sendWelcome) {
+                    val welcome = JSONObject("""{"type":"welcome","version":1,"session":"test-session","navigationTimeoutMs":6000,"remoteGuidance":true,"videoTransport":"webrtc"}""")
+                    genericCapability.get()?.let { welcome.put("genericRoundabouts", it) }
+                    connection.send(welcome.toString())
+                }
+            } else if (JSONObject(message).getString("type") in setOf("navigation.update", "navigation.stop")) {
+                navigation.offer(JSONObject(message))
             }
         }
         override fun onClose(connection: WebSocket, code: Int, reason: String, remote: Boolean) = Unit

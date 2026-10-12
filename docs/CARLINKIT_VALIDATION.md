@@ -85,7 +85,11 @@ Route-stop clearing, reconnect, reboot and overnight scenarios remain pending.
 | Maps with a recognized notification arrow and distance, without a written direction | Portable maneuver sent; correct direction and distance on the HUD/cluster | Pending |
 | Maps changes only its notification arrow | Direction changes on the next fresh observation, with no cached-image replay | Pending |
 | Recognized roundabout plus an explicit exit 1–10 | Observed circulation and exit transmitted together | Pending |
-| Roundabout without an exit, conflicting directions, or merge glyph | Unsupported under v1; previous guidance cleared | Pending |
+| Recognized circulation with no exit, capable receiver | Native cluster generic roundabout and real distance; no invented exit or CAN/AMap detour | Pending |
+| Recognized circulation with no exit, older receiver | Fresh ordered stop clears previous arrow; next supported turn resumes | Pending |
+| French `1ère sortie` / `première sortie` / `deuxième sortie` | Correct explicit ordinal with observed circulation | Pending |
+| Invalid, out-of-range or conflicting exits/directions, or merge glyph | Unsupported; previous guidance cleared | Pending |
+| Numbered turn → generic roundabout → same numbered turn, HUD + cluster | Owned CAN clear before native cluster frame; no AMap stop during generic step; next physical turn resumes | Pending |
 | Maps with an unrecognized image only / ambiguous guidance | Unsupported state, no invented direction | Pending |
 | ABRP | Active only when observable guidance is usable | Pending |
 | Switch Maps ↔ ABRP | Previous source stopped, no mixed data | Pending |

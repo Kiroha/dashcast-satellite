@@ -59,12 +59,14 @@ class NavigationAdaptersTest {
             .forEach { assertEquals(it, ParseResult.Unsupported, maps.parse(notification(text = "Example Road", icon = it))) }
     }
 
-    @Test fun `roundabout needs both observed circulation and exit`() {
+    @Test fun `roundabout preserves known exit and permits only an honest unknown exit`() {
         val instruction = notification(text = "At the roundabout take the 3rd exit", icon = "ic_roundabout_ccw")
         val result = maps.parse(instruction) as ParseResult.Valid
         assertEquals("roundabout_ccw", result.guidance.maneuver)
         assertEquals(3, result.guidance.exit)
-        assertEquals(ParseResult.Unsupported, maps.parse(instruction.copy(text = "At the roundabout")))
+        val generic = (maps.parse(instruction.copy(text = "At the roundabout")) as ParseResult.Valid).guidance
+        assertEquals("roundabout_generic_ccw", generic.maneuver)
+        assertNull(generic.exit)
         assertEquals(ParseResult.Unsupported, maps.parse(instruction.copy(iconResourceName = "ic_roundabout")))
         assertEquals(ParseResult.Unsupported, maps.parse(instruction.copy(text = "At the roundabout take the 11th exit")))
     }

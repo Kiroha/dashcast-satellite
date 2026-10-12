@@ -66,6 +66,7 @@ class SatelliteTransport internal constructor(
     private var videoLink: VideoLink? = null
     private val videoQueue = VideoSignallingQueue()
     private var remoteGuidance = false
+    private var genericRoundabouts = false
     private var deadline = 0L
     private var connectedAt = 0L
     private var lastInbound = 0L
@@ -204,7 +205,7 @@ class SatelliteTransport internal constructor(
             return
         }
         // A single pending value replaces older unsent observations. Source age is computed here.
-        val guidance = latest.next(now)
+        val guidance = latest.next(now, genericRoundabouts)
         if (guidance != null) current.send(guidance)
         // One bounded video signal can follow a guidance snapshot in the same tick. Continuous
         // navigation ingress must not starve SDP/ICE; heartbeat retains its own deadline above.
@@ -280,6 +281,7 @@ class SatelliteTransport internal constructor(
         socket = client
         authenticated = false
         remoteGuidance = false
+        genericRoundabouts = false
         latest.newSession()
         bufferedSince = 0
         deadline = now + 10_000
@@ -303,6 +305,7 @@ class SatelliteTransport internal constructor(
                 require(json.get("videoTransport") == "webrtc")
                 authenticated = true
                 remoteGuidance = json.getBoolean("remoteGuidance")
+                genericRoundabouts = NavigationWire.supportsGenericRoundabouts(json)
                 connectedAt = now
                 lastPing = 0
                 endpoints.connected()
@@ -376,6 +379,7 @@ class SatelliteTransport internal constructor(
         socketFactory = null
         authenticated = false
         remoteGuidance = false
+        genericRoundabouts = false
         selectedNetwork = null
         // The factory also owns raw/TLS sockets before Java-WebSocket has assigned its socket.
         oldFactory?.close()

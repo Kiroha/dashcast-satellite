@@ -14,5 +14,9 @@
         <Button android:id="@+id/video_stop" style="@style/Action" android:text="@string/video_stop" />
         <TextView android:id="@+id/video_metrics" style="@style/Body" />
         <TextView style="@style/Body" android:text="@string/video_performance" />
+        <TextView style="@style/SectionTitle" android:text="@string/video_history_title" />
+        <TextView style="@style/Body" android:text="@string/video_history_help" />
+        <TextView android:id="@+id/video_history" style="@style/Body" android:textIsSelectable="true" />
+        <Button android:id="@+id/video_copy_diagnostics" style="@style/Action" android:text="@string/video_copy_diagnostics" />
     </LinearLayout>
 </ScrollView>

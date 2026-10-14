@@ -71,6 +71,7 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
         if (VideoState.captureBusy) { stopSelf(); return START_NOT_STICKY }
         started = true
         VideoState.captureBusy = true
+        VideoDiagnostics.record(VideoDiagnostics.Event.SHARE_STARTED)
         try {
             showForeground()
             @Suppress("DEPRECATION")
@@ -97,6 +98,7 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
                     if (VideoControlBridge.link !== link) { finishCapture("control_unavailable"); return@post }
                     val value = createProjection(consent)
                     projection = value
+                    VideoDiagnostics.record(VideoDiagnostics.Event.PROJECTION_CREATED)
                     // Observe revocation even before a viewer exists and before the first VD.
                     value.registerCallback(projectionCallback, worker)
                     if (ending) return@post
@@ -107,10 +109,10 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
                     sender!!.viewerChanged(link.viewerReady)
                     updateNotification()
                     scheduleStats()
-                } catch (_: LinkageError) { finishCapture("native_unavailable") }
-                catch (_: Exception) { finishCapture("capture_unavailable") }
+                } catch (error: LinkageError) { VideoDiagnostics.exception(VideoDiagnostics.Event.NATIVE_UNAVAILABLE, error); finishCapture("native_unavailable") }
+                catch (error: Exception) { VideoDiagnostics.exception(VideoDiagnostics.Event.CAPTURE_UNAVAILABLE, error); finishCapture("capture_unavailable") }
             }
-        } catch (_: Exception) { finishCapture("capture_unavailable") }
+        } catch (error: Exception) { VideoDiagnostics.exception(VideoDiagnostics.Event.CAPTURE_UNAVAILABLE, error); finishCapture("capture_unavailable") }
         return START_NOT_STICKY
     }
     private fun showForeground() {
@@ -164,18 +166,20 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
                         updateNotification()
                         scheduleStats()
                     } else sender?.signal(message)
-                } catch (_: LinkageError) { finishCapture("native_unavailable") }
-                catch (_: Exception) { finishCapture("capture_unavailable") }
+                } catch (error: LinkageError) { VideoDiagnostics.exception(VideoDiagnostics.Event.NATIVE_UNAVAILABLE, error); finishCapture("native_unavailable") }
+                catch (error: Exception) { VideoDiagnostics.exception(VideoDiagnostics.Event.CAPTURE_UNAVAILABLE, error); finishCapture("capture_unavailable") }
             } } finally { queued.decrementAndGet() }
         }
     }
     @Synchronized private fun finishCapture(code: String) {
         if (ending) return
         ending = true
+        VideoDiagnostics.terminal(code)
         VideoState.status = code; VideoState.metrics = ""
         main.post { stopSelf() }
     }
     override fun onDestroy() {
+        if (!ending && started) VideoDiagnostics.record(VideoDiagnostics.Event.STOPPED)
         ending = true
         subscription?.close(); subscription = null
         if (screenReceiverRegistered) { unregisterReceiver(screenReceiver); screenReceiverRegistered = false }

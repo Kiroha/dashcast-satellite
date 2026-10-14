@@ -30,17 +30,22 @@ object VideoControlBridge {
         listener.linkChanged(link)
         return Closeable { listeners.remove(listener) }
     }
-    fun connected(value: VideoLink) { link = value; listeners.forEach { it.linkChanged(value) } }
+    fun connected(value: VideoLink) {
+        link = value
+        VideoDiagnostics.record(VideoDiagnostics.Event.CONTROL_CONNECTED)
+        listeners.forEach { it.linkChanged(value) }
+    }
     fun disconnected(generation: Long) {
         if (link?.generation != generation) return
         link = null
+        VideoDiagnostics.record(VideoDiagnostics.Event.CONTROL_CLOSED)
         listeners.forEach { it.linkChanged(null) }
     }
     fun receive(owner: VideoLink, message: JSONObject) {
         if (link !== owner) return
         when (message.optString("type")) {
-            "video.ready" -> owner.viewerReady = true
-            "video.closed" -> owner.viewerReady = false
+            "video.ready" -> { owner.viewerReady = true; VideoDiagnostics.record(VideoDiagnostics.Event.VIEWER_READY) }
+            "video.closed" -> { owner.viewerReady = false; VideoDiagnostics.record(VideoDiagnostics.Event.VIEWER_CLOSED) }
         }
         listeners.forEach { it.signal(owner, message) }
     }

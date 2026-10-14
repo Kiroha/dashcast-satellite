@@ -32,11 +32,15 @@ internal class NativeVideoSender(
     private var width = 0
     private var height = 0
     private var density = 0
+    private val sharingSession = VideoDiagnostics.currentShare()
     private val viewerSession = ViewerCaptureSession(
         initialize = { initializeCapture() },
         resume = { retries = 0; capture?.setDeliveryEnabled(true); track?.setEnabled(true); negotiate() },
         pause = { track?.setEnabled(false); capture?.setDeliveryEnabled(false); disposePeer() },
-        waiting = { if (active()) { VideoState.status = "waiting_viewer"; VideoState.metrics = "" } },
+        waiting = { if (active()) {
+            if (VideoState.status != "waiting_viewer") VideoDiagnostics.record(VideoDiagnostics.Event.WAITING_VIEWER)
+            VideoState.status = "waiting_viewer"; VideoState.metrics = ""
+        } },
         isReady = { !closed && active() && link.viewerReady && VideoControlBridge.link === link },
     )
     override fun start(projection: MediaProjection, width: Int, height: Int, density: Int) {
@@ -51,17 +55,23 @@ internal class NativeVideoSender(
     }
     private fun initializeCapture() {
         val projection = checkNotNull(projection)
+        VideoDiagnostics.record(VideoDiagnostics.Event.NATIVE_INITIALIZING)
         initializeNative(context)
         NetworkMonitor.getInstance().setNetworkChangeDetectorFactory(LanNetworkDetector.factory(link.lan))
         val base = EglBase.create().also { egl = it }
         val encoder = HardwareVideoEncoderFactory(base.eglBaseContext, false, false)
-        require(encoder.supportedCodecs.isNotEmpty()) { "hardware_encoder_unavailable" }
+        VideoDiagnostics.record(VideoDiagnostics.Event.ENCODER_CHECK)
+        if (encoder.supportedCodecs.isEmpty()) {
+            VideoDiagnostics.record(VideoDiagnostics.Event.HARDWARE_UNAVAILABLE)
+            error("hardware_encoder_unavailable")
+        }
         val options = PeerConnectionFactory.Options().apply {
             networkIgnoreMask = PeerConnectionFactory.Options.ADAPTER_TYPE_CELLULAR or PeerConnectionFactory.Options.ADAPTER_TYPE_VPN or
                 PeerConnectionFactory.Options.ADAPTER_TYPE_LOOPBACK or PeerConnectionFactory.Options.ADAPTER_TYPE_UNKNOWN
         }
         factory = PeerConnectionFactory.builder().setOptions(options).setVideoEncoderFactory(encoder)
             .setVideoDecoderFactory(SoftwareVideoDecoderFactory()).createPeerConnectionFactory()
+        VideoDiagnostics.record(VideoDiagnostics.Event.TEXTURE_INITIALIZING)
         helper = SurfaceTextureHelper.create("dashsat-texture", base.eglBaseContext) ?: error("texture_unavailable")
         source = factory!!.createVideoSource(true).apply { adaptOutputFormat(VideoPolicy.WIDTH, VideoPolicy.HEIGHT, VideoPolicy.FPS) }
         track = factory!!.createVideoTrack("dashsat-video", source!!)
@@ -69,7 +79,9 @@ internal class NativeVideoSender(
             stopped = { code -> post { if (!closed) failed(code) } },
             resized = { w, h -> source?.adaptOutputFormat(w, h, VideoPolicy.FPS) }
         )
+        VideoDiagnostics.record(VideoDiagnostics.Event.DISPLAY_INITIALIZING)
         capture!!.start(width, height)
+        VideoDiagnostics.record(VideoDiagnostics.Event.CAPTURE_INITIALIZED)
     }
     private fun negotiate() {
         if (closed || !active() || !link.viewerReady || VideoControlBridge.link !== link) return
@@ -91,7 +103,10 @@ internal class NativeVideoSender(
                     PeerConnection.IceConnectionState.DISCONNECTED)) failed("media_connection_lost") }
             }
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
-                post { if (owns(current) && state == PeerConnection.PeerConnectionState.CONNECTED) VideoState.status = "connected_waiting_frames" }
+                post { if (owns(current) && state == PeerConnection.PeerConnectionState.CONNECTED) {
+                    VideoDiagnostics.record(VideoDiagnostics.Event.MEDIA_CONNECTED)
+                    VideoState.status = "connected_waiting_frames"
+                } }
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = Unit
@@ -121,15 +136,16 @@ internal class NativeVideoSender(
         check(transceiver.sender.setParameters(params))
         connection.setBitrate(100_000, 900_000, VideoPolicy.BITRATE)
         VideoState.status = "negotiating"
+        VideoDiagnostics.record(VideoDiagnostics.Event.NEGOTIATING)
         frameWatchdog = EncodedFrameWatchdog(System.nanoTime())
         connection.createOffer(sdpObserver(current, created = { description ->
             connection.setLocalDescription(sdpObserver(current, applied = {
                 val sdp = VideoPolicy.sdp(connection.localDescription.description, link.lan.addresses)
-                link.send(JSONObject().put("type", "video.offer").put("negotiation", current.id).put("sdp", sdp)) { sent ->
-                    post { if (owns(current)) {
-                        if (sent) current.offerSent { send(it, current) } else failed("control_unavailable")
-                    } }
-                }
+                val completion = VideoSendCompletion(VideoDiagnostics.Event.OFFER_SENT, sharingSession, post,
+                    owns = { owns(current) }, sent = { current.offerSent { send(it, current) } },
+                    failed = { failed("control_unavailable") })
+                link.send(JSONObject().put("type", "video.offer").put("negotiation", current.id).put("sdp", sdp),
+                    completion::complete)
             }), description)
         }), MediaConstraints())
     }
@@ -140,8 +156,10 @@ internal class NativeVideoSender(
         try {
             when (type) {
                 "video.answer" -> {
+                    VideoDiagnostics.record(VideoDiagnostics.Event.ANSWER_RECEIVED)
                     val sdp = VideoPolicy.sdp(message.getString("sdp"), receiverHost = link.lan.receiverHost)
                     peer!!.setRemoteDescription(sdpObserver(current, applied = {
+                        VideoDiagnostics.record(VideoDiagnostics.Event.ANSWER_APPLIED)
                         current.answerApplied { applyIce(it, current) }
                     }), SessionDescription(SessionDescription.Type.ANSWER, sdp))
                 }
@@ -149,16 +167,18 @@ internal class NativeVideoSender(
                     val candidate = VideoPolicy.receiverCandidate(message.getString("candidate"), link.lan.receiverHost)
                         ?: return // Discard other interfaces, IPv6, public and relay candidates.
                     message.put("candidate", candidate)
+                    VideoDiagnostics.record(VideoDiagnostics.Event.ICE_RECEIVED, recent = false)
                     require(message.getString("sdpMid").length <= 64)
                     require(message.get("sdpMLineIndex") is Int && message.getInt("sdpMLineIndex") in 0..8)
                     if (!current.remoteIce(message.toString()) { applyIce(it, current) }) failed("signalling_overflow")
                 }
                 "video.error" -> {
+                    VideoDiagnostics.record(VideoDiagnostics.Event.RECEIVER_ERROR)
                     // The waiting viewer remains available after an error; no new ready event is needed.
                     if (++retries <= 2) negotiate() else failed("receiver_video_failed")
                 }
             }
-        } catch (_: Exception) { failed("video_protocol_failed") }
+        } catch (error: Exception) { VideoDiagnostics.exception(VideoDiagnostics.Event.NEGOTIATION_FAILED, error); failed("video_protocol_failed") }
     }
     private fun applyIce(raw: String, current: VideoNegotiation) {
         if (!owns(current)) return
@@ -167,7 +187,9 @@ internal class NativeVideoSender(
             message.getString("candidate"))) != true) failed("ice_failed")
     }
     private fun send(raw: String, current: VideoNegotiation) {
-        link.send(JSONObject(raw)) { success -> post { if (owns(current) && !success) failed("control_unavailable") } }
+        val completion = VideoSendCompletion(VideoDiagnostics.Event.ICE_SENT, sharingSession, post,
+            owns = { owns(current) }, failed = { failed("control_unavailable") })
+        link.send(JSONObject(raw), completion::complete)
     }
     private fun owns(value: VideoNegotiation) = !closed && active() && link.viewerReady && attempt === value && !value.closed && VideoControlBridge.link === link
     private fun sdpObserver(current: VideoNegotiation, created: (SessionDescription) -> Unit = {}, applied: () -> Unit = {}) =
@@ -177,7 +199,9 @@ internal class NativeVideoSender(
             override fun onCreateFailure(error: String) { post { if (owns(current)) failed("negotiation_failed") } }
             override fun onSetFailure(error: String) { post { if (owns(current)) failed("negotiation_failed") } }
         }
-    private fun runGuarded(action: () -> Unit) { try { action() } catch (_: Exception) { failed("negotiation_failed") } }
+    private fun runGuarded(action: () -> Unit) { try { action() } catch (error: Exception) {
+        VideoDiagnostics.exception(VideoDiagnostics.Event.NEGOTIATION_FAILED, error); failed("negotiation_failed")
+    } }
     override fun collectStats() {
         if (!link.viewerReady || VideoControlBridge.link !== link) { viewerSession.reconcile(); return }
         frameWatchdog?.failure(System.nanoTime())?.let { failed(it); return }
@@ -194,7 +218,10 @@ internal class NativeVideoSender(
             val values = outbound?.members ?: return@post
             val encoded = (values["framesEncoded"] as? Number)?.toLong() ?: 0L
             if (frameWatchdog?.encoded(encoded, System.nanoTime()) == true &&
-                VideoState.status == "connected_waiting_frames") VideoState.status = "streaming"
+                VideoState.status == "connected_waiting_frames") {
+                VideoDiagnostics.record(VideoDiagnostics.Event.FRAMES_ENCODED)
+                VideoState.status = "streaming"
+            }
             val codec = report.statsMap[values["codecId"]]?.members?.get("mimeType") as? String
             val bytes = (values["bytesSent"] as? Number)?.toLong() ?: 0L
             val time = report.timestampUs

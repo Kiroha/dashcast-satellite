@@ -11,6 +11,7 @@ import io.github.kiroha.dashcast.satellite.capture.VideoLink
 import io.github.kiroha.dashcast.satellite.capture.VideoLan
 import io.github.kiroha.dashcast.satellite.capture.VideoPolicy
 import io.github.kiroha.dashcast.satellite.capture.VideoSignallingQueue
+import io.github.kiroha.dashcast.satellite.capture.VideoDiagnostics
 import java.util.concurrent.atomic.AtomicLong
 import android.os.SystemClock
 import io.github.kiroha.dashcast.satellite.navigation.Observation
@@ -348,8 +349,10 @@ class SatelliteTransport internal constructor(
                             publish(TransportState.CONNECTED, "guidance_disabled")
                         }
                         "stale_sequence", "invalid_message" -> { fail("protocol_rejected"); return }
-                        "viewer_unavailable" -> videoLink?.let { VideoControlBridge.receive(it,
-                            JSONObject().put("type", "video.closed")) }
+                        // Legacy receivers can send this rejection after a newer video.ready.
+                        // It has no negotiation/generation: only explicit ready/closed events
+                        // may change global readiness. The active attempt retains its deadline.
+                        "viewer_unavailable" -> VideoDiagnostics.record(VideoDiagnostics.Event.LEGACY_VIEWER_ERROR)
                         else -> Unit
                     }
                 }

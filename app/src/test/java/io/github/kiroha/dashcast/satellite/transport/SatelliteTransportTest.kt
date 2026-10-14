@@ -5,6 +5,8 @@ import android.net.ConnectivityManager
 import android.net.LinkAddress
 import io.github.kiroha.dashcast.satellite.capture.VideoControlBridge
 import io.github.kiroha.dashcast.satellite.capture.VideoSignallingQueue
+import io.github.kiroha.dashcast.satellite.capture.VideoLink
+import io.github.kiroha.dashcast.satellite.capture.VideoDiagnostics
 import java.util.concurrent.atomic.AtomicBoolean
 import io.github.kiroha.dashcast.satellite.navigation.Observation
 import io.github.kiroha.dashcast.satellite.navigation.Guidance
@@ -382,6 +384,59 @@ class SatelliteTransportTest {
             assertEquals("CONNECTED", ReflectionHelpers.getField<Any>(transport, "lastStatus").let {
                 (it as TransportStatus).state.name })
         } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)); server.stopQuietly() }
+    }
+
+    @Test fun `late legacy viewer rejection and old scoped error never clear newer authenticated readiness`() {
+        configureLan { Socket() }
+        val manager = app.getSystemService(ConnectivityManager::class.java)
+        val network = manager.allNetworks.single()
+        val properties = manager.getLinkProperties(network)!!
+        val address = ReflectionHelpers.callConstructor(LinkAddress::class.java,
+            ClassParameter.from(InetAddress::class.java, InetAddress.getByName("127.0.0.1")),
+            ClassParameter.from(Int::class.javaPrimitiveType, 8))
+        ReflectionHelpers.callInstanceMethod<Boolean>(properties, "addLinkAddress", ClassParameter.from(LinkAddress::class.java, address))
+        shadowOf(manager).setLinkProperties(network, properties)
+        val connected = CountDownLatch(1); val stopped = CountDownLatch(1)
+        val markers = LinkedBlockingQueue<Boolean>()
+        val server = TestReceiver(true)
+        val transport = SatelliteTransport(app, {
+            if (it.state == TransportState.CONNECTED) connected.countDown()
+            if (it.state == TransportState.STOPPED) stopped.countDown()
+        }, { 100L })
+        val subscription = VideoControlBridge.subscribe(object : VideoControlBridge.Listener {
+            override fun linkChanged(link: VideoLink?) = Unit
+            override fun signal(link: VideoLink, message: JSONObject) {
+                if (message.optString("type") == "video.ice") markers.offer(link.viewerReady)
+            }
+        })
+        try {
+            server.startAndAwait(); transport.start(profile(server.port, listOf("127.0.0.1")))
+            assertTrue(connected.await(5, TimeUnit.SECONDS))
+            ReflectionHelpers.getField<ExecutorService>(transport, "worker").submit {}.get(3, TimeUnit.SECONDS)
+            val owner = VideoControlBridge.link!!
+            val connection = server.connections.single()
+            fun marker(): Boolean? {
+                connection.send("""{"type":"video.ice","negotiation":"old","candidate":"candidate:test","sdpMid":"0","sdpMLineIndex":0}""")
+                return markers.poll(3, TimeUnit.SECONDS)
+            }
+            connection.send("""{"type":"video.ready"}""")
+            connection.send("""{"type":"error","code":"viewer_unavailable"}""")
+            assertEquals(true, marker())
+            assertTrue(owner.viewerReady)
+            connection.send("""{"type":"video.closed"}""")
+            connection.send("""{"type":"error","code":"viewer_unavailable"}""")
+            assertEquals(false, marker())
+            connection.send("""{"type":"video.ready"}""")
+            connection.send("""{"type":"video.error","negotiation":"obsolete","code":"video_timeout"}""")
+            assertEquals(true, marker())
+            assertSame(owner, VideoControlBridge.link)
+            transport.offer(Observation.Stop(100))
+            assertNotNull("Video errors must preserve authenticated guidance", server.navigation.poll(3, TimeUnit.SECONDS))
+            assertTrue(VideoDiagnostics.summary().contains("legacy_viewer_error="))
+        } finally {
+            subscription.close(); transport.stop()
+            assertTrue(stopped.await(3, TimeUnit.SECONDS)); server.stopQuietly()
+        }
     }
 
     @Test fun `video offer advances alongside continuous guidance and later stop names a sent offer`() {

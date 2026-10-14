@@ -146,6 +146,14 @@ class VideoCaptureServiceTest {
         start(); flushWorker()
         assertEquals("stopped", VideoState.status); assertEquals(0, engine.resumes)
     }
+    @Test fun `capture setup failure retains safe category and never the platform exception message`() {
+        service.createProjection = { throw SecurityException("private screen title token SDP") }
+        start(); flushWorker()
+        assertEquals("capture_unavailable", VideoState.status)
+        assertTrue(VideoDiagnostics.summary().contains("Capture setup failed (security)"))
+        assertFalse(VideoDiagnostics.summary().contains("private screen title"))
+        assertEquals(0, engine.starts)
+    }
     private fun start() {
         service.onStartCommand(Intent().setAction(VideoCaptureService.START)
             .putExtra(VideoCaptureService.CONSENT, Intent()).putExtra(VideoCaptureService.GENERATION, owner.generation), 0, 1)

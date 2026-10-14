@@ -76,6 +76,36 @@ Queues, candidate counts, SDP/message sizes, negotiations and pending diagnostic
 Video errors do not turn cached navigation into fresh guidance. No tokens, SDP, route text,
 notifications or arbitrary native diagnostic logs are written to support logs.
 
+## Video activity after switching displays
+
+Returning to CarPlay hides the main-display DashCast viewer, so **waiting for DashCast** is
+expected there. It does not describe what happened while the viewer was visible. DashSat's
+**Recent video activity** retains up to 32 process-local stages, with the eight newest shown
+on the video page and all retained stages available through **Copy video diagnostics**.
+Local session numbers distinguish separate authorized sharing attempts; the latest stage is
+shown first. ICE events contribute only to saturating totals, without displacing useful stages.
+
+The stages distinguish Android capture creation, native/hardware encoder setup, offer transmission,
+answer receipt/application, media connection and actual encoded-frame progress. A sent offer means
+the control transport accepted that send, not that the receiver processed it. It remains historical
+even if the capture worker processes its completion after that peer has closed. Neither an accepted
+offer nor encoded frames proves that DashCast displayed an image. The receiver bug report separately
+records viewer readiness, received offers, queued answers, track/media connection and actual decoded
+frame progress. Historical decoding also does not prove the current image is visible.
+
+The history contains fixed stage/cause labels, elapsed ages, local attempt numbers and bounded
+totals only. It is cleared when the app process exits and contains no routes, notifications,
+tokens, SDP, candidate addresses, network/device identifiers, raw error messages or class names.
+Use the copy action after returning from the receiver, while parked, to preserve the steps of
+a failed attempt before starting another one.
+
+An older receiver may deliver an unscoped `viewer_unavailable` error after a newer `video.ready`.
+This error is retained as evidence without clearing readiness. Only explicit `video.ready` and
+`video.closed` events change viewer availability; existing finite negotiation deadlines still
+end an attempt that cannot establish media. The updated receiver serializes its unavailable
+rejection with viewer attachment so a new readiness signal cannot be overtaken by that rejection.
+No wire message or protocol fixture changes are required.
+
 ## Performance acceptance on the actual vehicle
 
 The goal is lower sustained **vehicle** CPU/GPU workload than running the navigation app locally.

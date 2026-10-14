@@ -2,6 +2,7 @@ package io.github.kiroha.dashcast.satellite.capture
 
 import android.app.Activity
 import android.content.Intent
+import android.content.ClipboardManager
 import android.os.Looper
 import android.widget.Button
 import android.widget.TextView
@@ -80,6 +81,22 @@ class VideoCaptureActivityTest {
         assertFalse(activity.findViewById<Button>(R.id.video_start).isEnabled)
         assertTrue(activity.findViewById<TextView>(R.id.video_status).text.toString().contains("waiting for DashCast"))
         assertNotNull("Waiting capture must launch the chosen app before any video.ready", shadowOf(activity).nextStartedActivity)
+        controller.pause().stop().destroy()
+    }
+    @Test fun `historical encoding remains readable and copyable after reopening without claiming current image`() {
+        VideoDiagnostics.record(VideoDiagnostics.Event.FRAMES_ENCODED)
+        VideoDiagnostics.record(VideoDiagnostics.Event.VIEWER_CLOSED)
+        VideoState.status = "waiting_viewer"; VideoState.captureBusy = true
+        val first = Robolectric.buildActivity(VideoCaptureActivity::class.java).setup()
+        first.pause().stop().destroy()
+        val controller = Robolectric.buildActivity(VideoCaptureActivity::class.java).setup()
+        val activity = controller.get()
+        assertTrue(activity.findViewById<TextView>(R.id.video_status).text.toString().contains("waiting for DashCast"))
+        assertTrue(activity.findViewById<TextView>(R.id.video_history).text.toString().contains("image not confirmed"))
+        activity.findViewById<Button>(R.id.video_copy_diagnostics).performClick()
+        val text = activity.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString()
+        assertTrue(text.contains("frames_encoded="))
+        assertTrue(text.contains("Earlier encoding does not confirm the current receiver image"))
         controller.pause().stop().destroy()
     }
     private fun result(activity: VideoCaptureActivity, code: Int, intent: Intent?) {

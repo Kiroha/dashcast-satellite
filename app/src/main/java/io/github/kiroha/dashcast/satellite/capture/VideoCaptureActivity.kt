@@ -3,6 +3,8 @@ package io.github.kiroha.dashcast.satellite.capture
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.pm.ResolveInfo
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -62,14 +64,23 @@ class VideoCaptureActivity : Activity() {
             if (link == null || chosen == null || (VideoState.active || VideoState.captureBusy)) return@setOnClickListener
             try {
                 pendingGeneration = link.generation; consentPending = true
+                VideoDiagnostics.record(VideoDiagnostics.Event.CONSENT_REQUESTED)
                 @Suppress("DEPRECATION")
                 startActivityForResult(getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent(), CAPTURE)
-            } catch (_: Exception) { consentPending = false; toast(R.string.video_unavailable) }
+            } catch (error: Exception) {
+                VideoDiagnostics.exception(VideoDiagnostics.Event.CAPTURE_UNAVAILABLE, error)
+                consentPending = false; toast(R.string.video_unavailable)
+            }
             render()
         }
         findViewById<Button>(R.id.video_stop).setOnClickListener {
             stopService(Intent(this, VideoCaptureService::class.java))
             launchDeadline = 0L
+        }
+        findViewById<Button>(R.id.video_copy_diagnostics).setOnClickListener {
+            getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                ClipData.newPlainText(getString(R.string.video_history_title), VideoDiagnostics.summary()))
+            toast(R.string.video_diagnostics_copied)
         }
         findViewById<TextView>(R.id.video_help).setText(if (Build.VERSION.SDK_INT >= 34)
             R.string.video_help_app else R.string.video_help_display)
@@ -99,7 +110,10 @@ class VideoCaptureActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != CAPTURE) return
         consentPending = false
-        if (resultCode != RESULT_OK || data == null) { render(); return }
+        if (resultCode != RESULT_OK || data == null) {
+            VideoDiagnostics.record(VideoDiagnostics.Event.CONSENT_CANCELLED)
+            render(); return
+        }
         val link = VideoControlBridge.link
         if (link == null || link.generation != pendingGeneration || (VideoState.active || VideoState.captureBusy)) {
             toast(R.string.video_connection_required); render(); return
@@ -110,7 +124,10 @@ class VideoCaptureActivity : Activity() {
                 .putExtra(VideoCaptureService.CONSENT, data).putExtra(VideoCaptureService.GENERATION, link.generation))
             // The foreground capture lease is enough; a shared central screen may hide the viewer.
             launchDeadline = android.os.SystemClock.elapsedRealtime() + 10_000
-        } catch (_: Exception) { VideoState.status = "capture_unavailable"; toast(R.string.video_unavailable) }
+        } catch (error: Exception) {
+            VideoDiagnostics.exception(VideoDiagnostics.Event.CAPTURE_UNAVAILABLE, error)
+            VideoState.status = "capture_unavailable"; toast(R.string.video_unavailable)
+        }
         render()
     }
     override fun onSaveInstanceState(outState: Bundle) {
@@ -140,6 +157,7 @@ class VideoCaptureActivity : Activity() {
             else -> R.string.video_ready
         })
         findViewById<TextView>(R.id.video_metrics).text = VideoState.metrics
+        findViewById<TextView>(R.id.video_history).text = VideoDiagnostics.recent()
         findViewById<Button>(R.id.video_choose).isEnabled = !(VideoState.active || VideoState.captureBusy) && !consentPending
         findViewById<Button>(R.id.video_open_app).isEnabled = chosen != null && !consentPending
         findViewById<Button>(R.id.video_start).isEnabled = chosen != null && link != null && !(VideoState.active || VideoState.captureBusy) && !consentPending

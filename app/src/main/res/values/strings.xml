@@ -126,4 +126,8 @@
     <string name="update_install">Install update</string>
     <string name="update_close">Close / Cancel download</string>
     <string name="update_installer_unavailable">Unable to open Android installation settings or installer. Check the box firmware settings and try again.</string>
+    <string name="video_history_title">Recent video activity</string>
+    <string name="video_history_help">Newest first, for this app process only. Session numbers separate sharing attempts. Earlier events remain visible after switching back from DashCast; they do not confirm the current receiver image.</string>
+    <string name="video_copy_diagnostics">Copy video diagnostics</string>
+    <string name="video_diagnostics_copied">Video diagnostics copied</string>
 </resources>

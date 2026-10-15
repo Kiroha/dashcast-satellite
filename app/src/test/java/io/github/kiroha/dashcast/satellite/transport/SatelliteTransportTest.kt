@@ -6,6 +6,7 @@ import android.net.LinkAddress
 import io.github.kiroha.dashcast.satellite.capture.VideoControlBridge
 import io.github.kiroha.dashcast.satellite.capture.VideoSignallingQueue
 import io.github.kiroha.dashcast.satellite.capture.VideoLink
+import io.github.kiroha.dashcast.satellite.capture.VideoDiagnosticsTransfer
 import io.github.kiroha.dashcast.satellite.capture.VideoDiagnostics
 import java.util.concurrent.atomic.AtomicBoolean
 import io.github.kiroha.dashcast.satellite.navigation.Observation
@@ -344,6 +345,39 @@ class SatelliteTransportTest {
     }
 
 
+    @Test fun `manual diagnostics use only an opted in pinned control socket and commit ack without a viewer`() {
+        for (capability in listOf<Any?>(null, true, "1", 2, 1)) {
+            configureLan { Socket() }
+            val connected = CountDownLatch(1); val stopped = CountDownLatch(1)
+            val server = TestReceiver(true)
+            server.diagnosticsCapability.set(capability)
+            val transport = SatelliteTransport(app, {
+                if (it.state == TransportState.CONNECTED) connected.countDown()
+                if (it.state == TransportState.STOPPED) stopped.countDown()
+            }, { 100L })
+            try {
+                server.startAndAwait(); transport.start(profile(server.port, listOf("127.0.0.1")))
+                assertTrue(connected.await(5, TimeUnit.SECONDS))
+                ReflectionHelpers.getField<ExecutorService>(transport, "worker").submit {}.get(3, TimeUnit.SECONDS)
+                assertNull("Diagnostics do not require a visible viewer or usable video LAN", VideoControlBridge.link)
+                assertEquals(capability == 1, VideoDiagnosticsTransfer.send(app))
+                if (capability == 1) {
+                    val snapshot = server.diagnostics.poll(3, TimeUnit.SECONDS)
+                    assertNotNull(snapshot)
+                    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+                    while (VideoDiagnosticsTransfer.result == VideoDiagnosticsTransfer.Result.SENDING && System.nanoTime() < deadline) Thread.sleep(10)
+                    assertEquals(VideoDiagnosticsTransfer.Result.RECEIVED, VideoDiagnosticsTransfer.result)
+                } else {
+                    Thread.sleep(150)
+                    assertFalse(server.received.any { JSONObject(it).optString("type").startsWith("diagnostics.") })
+                }
+                transport.offer(Observation.Stop(100L))
+                assertNotNull("Diagnostics must preserve guidance", server.navigation.poll(3, TimeUnit.SECONDS))
+            } finally { transport.stop(); assertTrue(stopped.await(3, TimeUnit.SECONDS)); server.stopQuietly() }
+            assertEquals(VideoDiagnosticsTransfer.Availability.DISCONNECTED, VideoDiagnosticsTransfer.availability)
+        }
+    }
+
     @Test fun `video cancellation before offer transmission preserves authenticated guidance`() {
         configureLan { Socket() }
         val manager = app.getSystemService(ConnectivityManager::class.java)
@@ -520,6 +554,8 @@ class SatelliteTransportTest {
         val errorType = AtomicReference<String>()
         val genericCapability = AtomicReference<Any?>()
         val navigation = LinkedBlockingQueue<JSONObject>()
+        val diagnosticsCapability = AtomicReference<Any?>()
+        val diagnostics = LinkedBlockingQueue<JSONObject>()
         init {
             setWebSocketFactory(DefaultSSLWebSocketServerFactory(serverContext()))
             isDaemon = true
@@ -537,8 +573,15 @@ class SatelliteTransportTest {
                 if (sendWelcome) {
                     val welcome = JSONObject("""{"type":"welcome","version":1,"session":"test-session","navigationTimeoutMs":6000,"remoteGuidance":true,"videoTransport":"webrtc"}""")
                     genericCapability.get()?.let { welcome.put("genericRoundabouts", it) }
+                    diagnosticsCapability.get()?.let { welcome.put("videoDiagnostics", it) }
                     connection.send(welcome.toString())
                 }
+            } else if (JSONObject(message).getString("type") == "diagnostics.video") {
+                val snapshot = JSONObject(message)
+                io.github.kiroha.dashcast.satellite.capture.VideoDiagnosticsWire.validate(snapshot)
+                diagnostics.offer(snapshot)
+                connection.send(JSONObject().put("type", "diagnostics.video.ack").put("schema", 1)
+                    .put("request", snapshot.get("request")).put("status", "accepted").toString())
             } else if (JSONObject(message).getString("type") in setOf("navigation.update", "navigation.stop")) {
                 navigation.offer(JSONObject(message))
             }

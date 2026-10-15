@@ -18,5 +18,7 @@
         <TextView style="@style/Body" android:text="@string/video_history_help" />
         <TextView android:id="@+id/video_history" style="@style/Body" android:textIsSelectable="true" />
         <Button android:id="@+id/video_copy_diagnostics" style="@style/Action" android:text="@string/video_copy_diagnostics" />
+        <Button android:id="@+id/video_send_diagnostics" style="@style/Action" android:text="@string/video_send_diagnostics" />
+        <TextView android:id="@+id/video_diagnostics_transfer" style="@style/Body" android:accessibilityLiveRegion="polite" />
     </LinearLayout>
 </ScrollView>

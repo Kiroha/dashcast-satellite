@@ -1,6 +1,8 @@
 package io.github.kiroha.dashcast.satellite.capture
 
 import android.os.SystemClock
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** Bounded in-memory diagnostics. No content, signalling, device/network identity or raw errors. */
 object VideoDiagnostics {
@@ -51,6 +53,26 @@ object VideoDiagnostics {
                     if (it.cause == Cause.NONE) "" else " (${it.cause.name.lowercase()})"
             }
         }
+        /** Reconstruct only typed local evidence; never export the human-readable summary. */
+        @Synchronized fun snapshot(request: Long, state: String, captureBusy: Boolean, appVersionCode: Int): JSONObject {
+            val now = clock()
+            val recent = entries.toList().asReversed()
+            val selected = (recent.map { it.event } + Event.entries.filter { counts[it.ordinal] > 0 }).distinct().take(32)
+            val counters = JSONObject()
+            var ageFloor = 0L
+            selected.forEach { counters.put(it.name.lowercase(), counts[it.ordinal]) }
+            return JSONObject().put("type", "diagnostics.video").put("schema", 1).put("request", request)
+                .put("snapshotAgeMs", 0).put("appVersionCode", appVersionCode).put("state", state.takeIf { it in VideoDiagnosticsWire.states } ?: "other_failure")
+                .put("captureBusy", captureBusy).put("share", share.coerceAtMost(VideoDiagnosticsWire.MAX_ORDINAL))
+                .put("counts", counters).put("recent", JSONArray(recent.map {
+                    // Preserve chronological order conservatively if an injected clock regresses.
+                    val age = (now - it.at).coerceIn(ageFloor, VideoDiagnosticsWire.MAX_AGE_MS)
+                    ageFloor = age
+                    JSONObject().put("event", it.event.name.lowercase()).put("cause", it.cause.name.lowercase())
+                        .put("share", it.share.coerceIn(0, VideoDiagnosticsWire.MAX_ORDINAL))
+                        .put("ageMs", age)
+                }))
+        }
         @Synchronized fun summary(): String =
             "DashSat video: process-local history, newest first; session numbers separate sharing attempts. " +
                 "Earlier encoding does not confirm the current receiver image.\n" +
@@ -63,6 +85,8 @@ object VideoDiagnostics {
     internal fun currentShare(): Long = timeline.currentShare()
     fun recent(): String = timeline.recent()
     fun summary(): String = timeline.summary()
+    internal fun snapshot(request: Long, appVersionCode: Int): JSONObject =
+        timeline.snapshot(request, VideoState.status, VideoState.captureBusy, appVersionCode)
     fun exception(event: Event, error: Throwable) = record(event, when (error) {
         is SecurityException -> Cause.SECURITY
         is IllegalStateException -> Cause.STATE

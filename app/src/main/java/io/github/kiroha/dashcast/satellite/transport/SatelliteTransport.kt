@@ -11,6 +11,8 @@ import io.github.kiroha.dashcast.satellite.capture.VideoLink
 import io.github.kiroha.dashcast.satellite.capture.VideoLan
 import io.github.kiroha.dashcast.satellite.capture.VideoPolicy
 import io.github.kiroha.dashcast.satellite.capture.VideoSignallingQueue
+import io.github.kiroha.dashcast.satellite.capture.VideoDiagnosticsTransfer
+import io.github.kiroha.dashcast.satellite.capture.VideoDiagnosticsWire
 import io.github.kiroha.dashcast.satellite.capture.VideoDiagnostics
 import java.util.concurrent.atomic.AtomicLong
 import android.os.SystemClock
@@ -65,6 +67,7 @@ class SatelliteTransport internal constructor(
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var authenticated = false
     private var videoLink: VideoLink? = null
+    private var controlGeneration = -1L
     private val videoQueue = VideoSignallingQueue()
     private var remoteGuidance = false
     private var genericRoundabouts = false
@@ -191,6 +194,7 @@ class SatelliteTransport internal constructor(
             if (now >= deadline) fail(if (current.isOpen) "authentication_timeout" else "connection_timeout")
             return
         }
+        VideoDiagnosticsTransfer.expire(controlGeneration)
         if (now - lastInbound >= 7_000) { fail("heartbeat_timeout"); return }
         if (now - connectedAt >= 20_000) backoff.reset()
         if (current.hasBufferedData()) {
@@ -214,6 +218,8 @@ class SatelliteTransport internal constructor(
             current.send(pending.text)
             videoQueue.sent(pending)
         }
+        // A manual diagnostic snapshot has one replaceable slot and follows time-sensitive work.
+        VideoDiagnosticsTransfer.next(controlGeneration)?.let { current.send(it) }
     }
 
     private fun connect(now: Long) {
@@ -305,6 +311,8 @@ class SatelliteTransport internal constructor(
                 require(json.get("session") is String && json.getString("session").length in 1..128)
                 require(json.get("videoTransport") == "webrtc")
                 authenticated = true
+                controlGeneration = VIDEO_GENERATIONS.incrementAndGet()
+                VideoDiagnosticsTransfer.connected(controlGeneration, VideoDiagnosticsWire.supported(json))
                 remoteGuidance = json.getBoolean("remoteGuidance")
                 genericRoundabouts = NavigationWire.supportsGenericRoundabouts(json)
                 connectedAt = now
@@ -321,7 +329,7 @@ class SatelliteTransport internal constructor(
                     val ownerSocket = socket
                     val remote = ownerSocket?.socket?.inetAddress?.hostAddress
                     require(remote != null && PairingProfile.numericLocalIpv4Address(remote) != null)
-                    val generation = VIDEO_GENERATIONS.incrementAndGet()
+                    val generation = controlGeneration
                     val link = VideoLink(generation, VideoLan(selected, name, addresses,
                         connectivity.getNetworkCapabilities(selected)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true, remote), terminate = { negotiation ->
                         dispatch {
@@ -340,6 +348,7 @@ class SatelliteTransport internal constructor(
                 }
             } else when (type) {
                 "pong" -> Unit
+                "diagnostics.video.ack" -> VideoDiagnosticsTransfer.acknowledge(controlGeneration, json)
                 "video.ready", "video.closed", "video.answer", "video.ice", "video.error" ->
                     videoLink?.let { VideoControlBridge.receive(it, json) }
                 "error" -> {
@@ -373,6 +382,8 @@ class SatelliteTransport internal constructor(
     }
 
     private fun disconnect() {
+        VideoDiagnosticsTransfer.disconnected(controlGeneration)
+        controlGeneration = -1L
         videoLink?.let { VideoControlBridge.disconnected(it.generation) }
         videoLink = null
         videoQueue.clear()

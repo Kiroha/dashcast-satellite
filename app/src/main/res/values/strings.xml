@@ -130,4 +130,13 @@
     <string name="video_history_help">Newest first, for this app process only. Session numbers separate sharing attempts. Earlier events remain visible after switching back from DashCast; they do not confirm the current receiver image.</string>
     <string name="video_copy_diagnostics">Copy video diagnostics</string>
     <string name="video_diagnostics_copied">Video diagnostics copied</string>
+    <string name="video_send_diagnostics">Send diagnostics to DashCast</string>
+    <string name="video_diagnostics_connect">Connect DashSat to DashCast to send diagnostics.</string>
+    <string name="video_diagnostics_unsupported">This DashCast version cannot receive diagnostics.</string>
+    <string name="video_diagnostics_send_help">Send the recent video history over the local connection, then return to DashCast and send a bug report. No Telegram or internet access is needed on this device.</string>
+    <string name="video_diagnostics_sending">Sending diagnostics…</string>
+    <string name="video_diagnostics_received">Last transfer: diagnostics received by DashCast. Return to DashCast and send a bug report. The snapshot is historical and kept in memory for up to 24 hours; restarting or resetting DashCast clears it.</string>
+    <string name="video_diagnostics_rejected">DashCast could not accept the diagnostics. Try again.</string>
+    <string name="video_diagnostics_failed">Diagnostics were not confirmed. Check the connection and try again.</string>
+    <string name="video_diagnostics_timeout">No confirmation from DashCast. Try again.</string>
 </resources>

@@ -134,3 +134,14 @@ All items below require a parked Tbox Ultra 1 / Android 15 test; they are not ye
 - [ ] Android installer confirmation can be cancelled, then retried manually.
 - [ ] Same-key, newer-version replacement succeeds and the existing recovery setting governs reconnection.
 - [ ] Downloading does not stop or rebind the LAN guidance session; installation naturally replaces/restarts Satellite.
+
+## Manual diagnostics over the local connection
+
+Pending real-box validation: after a failed video attempt, return to DashSat and press **Send
+diagnostics to DashCast**. No Telegram/WhatsApp access on the box is needed. Confirm the received
+acknowledgement while the DashCast viewer is hidden, then return to DashCast and send its usual
+bug report. Verify the DASHSAT VIDEO section retains the historical sender snapshot after an ordinary
+disconnect; disable/revoke/restart/different-peer authentication must clear it. Compare stopped and
+waiting capture states; diagnostics must not start capture, freshen guidance or claim decoded video.
+Test a legacy receiver (send disabled), LAN loss during send (unconfirmed), repeated sends, and a
+new control session; no old snapshot may be replayed automatically.

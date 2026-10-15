@@ -82,6 +82,10 @@ class VideoCaptureActivity : Activity() {
                 ClipData.newPlainText(getString(R.string.video_history_title), VideoDiagnostics.summary()))
             toast(R.string.video_diagnostics_copied)
         }
+        findViewById<Button>(R.id.video_send_diagnostics).setOnClickListener {
+            VideoDiagnosticsTransfer.send(this)
+            render()
+        }
         findViewById<TextView>(R.id.video_help).setText(if (Build.VERSION.SDK_INT >= 34)
             R.string.video_help_app else R.string.video_help_display)
     }
@@ -158,6 +162,28 @@ class VideoCaptureActivity : Activity() {
         })
         findViewById<TextView>(R.id.video_metrics).text = VideoState.metrics
         findViewById<TextView>(R.id.video_history).text = VideoDiagnostics.recent()
+        findViewById<Button>(R.id.video_send_diagnostics).isEnabled =
+            VideoDiagnosticsTransfer.availability == VideoDiagnosticsTransfer.Availability.AVAILABLE &&
+                VideoDiagnosticsTransfer.result != VideoDiagnosticsTransfer.Result.SENDING
+        val transferText = getString(when (VideoDiagnosticsTransfer.result) {
+            VideoDiagnosticsTransfer.Result.SENDING -> R.string.video_diagnostics_sending
+            VideoDiagnosticsTransfer.Result.RECEIVED -> R.string.video_diagnostics_received
+            VideoDiagnosticsTransfer.Result.REJECTED -> R.string.video_diagnostics_rejected
+            VideoDiagnosticsTransfer.Result.FAILED -> R.string.video_diagnostics_failed
+            VideoDiagnosticsTransfer.Result.TIMEOUT -> R.string.video_diagnostics_timeout
+            VideoDiagnosticsTransfer.Result.IDLE -> when (VideoDiagnosticsTransfer.availability) {
+                VideoDiagnosticsTransfer.Availability.DISCONNECTED -> R.string.video_diagnostics_connect
+                VideoDiagnosticsTransfer.Availability.UNSUPPORTED -> R.string.video_diagnostics_unsupported
+                VideoDiagnosticsTransfer.Availability.AVAILABLE -> R.string.video_diagnostics_send_help
+            }
+        }) + when {
+            VideoDiagnosticsTransfer.result == VideoDiagnosticsTransfer.Result.IDLE -> ""
+            VideoDiagnosticsTransfer.availability == VideoDiagnosticsTransfer.Availability.DISCONNECTED -> "\n" + getString(R.string.video_diagnostics_connect)
+            VideoDiagnosticsTransfer.availability == VideoDiagnosticsTransfer.Availability.UNSUPPORTED -> "\n" + getString(R.string.video_diagnostics_unsupported)
+            else -> ""
+        }
+        val transferView = findViewById<TextView>(R.id.video_diagnostics_transfer)
+        if (transferView.text.toString() != transferText) transferView.text = transferText
         findViewById<Button>(R.id.video_choose).isEnabled = !(VideoState.active || VideoState.captureBusy) && !consentPending
         findViewById<Button>(R.id.video_open_app).isEnabled = chosen != null && !consentPending
         findViewById<Button>(R.id.video_start).isEnabled = chosen != null && link != null && !(VideoState.active || VideoState.captureBusy) && !consentPending

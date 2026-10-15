@@ -3,7 +3,7 @@
 DashSat launches an application on the external Android box and shares its video with DashCast.
 The source app, capture, rendering and hardware encoding run on the box. WebRTC transports a single
 video track directly over LAN UDP with DTLS-SRTP. The existing authenticated, certificate-pinned WSS
-socket carries signalling only. DashCast must decode and compose the received video before the
+socket carries signalling and optional manual, typed diagnostics. DashCast must decode and compose the received video before the
 existing cluster projection displays it; it is not a zero-cost compressed-video relay.
 
 ## Setup while parked
@@ -96,8 +96,29 @@ frame progress. Historical decoding also does not prove the current image is vis
 The history contains fixed stage/cause labels, elapsed ages, local attempt numbers and bounded
 totals only. It is cleared when the app process exits and contains no routes, notifications,
 tokens, SDP, candidate addresses, network/device identifiers, raw error messages or class names.
-Use the copy action after returning from the receiver, while parked, to preserve the steps of
-a failed attempt before starting another one.
+After returning from the receiver while parked, use **Send diagnostics to DashCast** before
+starting another attempt. It sends one small, strictly typed snapshot over the existing authenticated
+local connection, even while the DashCast viewer is hidden. This needs no internet, Telegram or
+WhatsApp on the box. Wait for **Last transfer: diagnostics received by DashCast**, then return to
+DashCast and send its normal bug report. That report includes the sender snapshot alongside receiver
+history. No acknowledgement means receipt is unconfirmed; retry after checking the connection.
+**Copy video diagnostics** remains available.
+
+The send button needs a receiver advertising the optional schema 1 capability; it is disabled with
+an explanation when disconnected or unsupported. It does not depend on video/capture readiness.
+The sender keeps one latest pending snapshot, times out after five seconds, and never retries it on
+another socket. Acknowledgement means a typed snapshot committed to receiver RAM, not successful
+video. The receiver keeps one snapshot for at most 24 hours after receipt, including ordinary
+disconnects. Process restart, a different/unknown authenticated peer, receiver disable or token
+revocation clears it. The displayed result is the historical **last transfer**, so current
+connectivity/capability is shown separately when unavailable.
+
+The payload contains only allowlisted stage/state/cause enums, Boolean capture state, bounded
+version/counter/share ordinals and elapsed ages. It never sends the clipboard summary, raw metrics,
+SDP, notifications, route text, addresses, credentials or peer/negotiation IDs. At most 32 event types
+and 32 newest history rows fit a 16 KiB UTF-8 limit. Ages saturate at 24 hours; counters and local
+ordinals at one million are lower bounds, and capped ordinals can merge attempts. Event age at capture,
+queue age and receiver receipt age remain distinct historical values.
 
 An older receiver may deliver an unscoped `viewer_unavailable` error after a newer `video.ready`.
 This error is retained as evidence without clearing readiness. Only explicit `video.ready` and

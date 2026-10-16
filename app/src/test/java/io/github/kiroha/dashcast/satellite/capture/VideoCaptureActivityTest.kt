@@ -123,6 +123,24 @@ class VideoCaptureActivityTest {
         assertTrue(text.contains("Earlier encoding does not confirm the current receiver image"))
         controller.pause().stop().destroy()
     }
+    @Test fun `hidden source is a resumable active capture with Stop and Open enabled`() {
+        VideoControlBridge.connected(link(101))
+        VideoState.status = "capture_paused"; VideoState.captureBusy = true
+        val controller = Robolectric.buildActivity(VideoCaptureActivity::class.java).setup()
+        val activity = controller.get()
+        ReflectionHelpers.setField(activity, "chosen", activity.packageName)
+        ReflectionHelpers.callInstanceMethod<Void>(activity, "render")
+        assertTrue(activity.findViewById<Button>(R.id.video_stop).isEnabled)
+        assertTrue(activity.findViewById<Button>(R.id.video_open_app).isEnabled)
+        assertFalse(activity.findViewById<Button>(R.id.video_start).isEnabled)
+        val text = activity.findViewById<TextView>(R.id.video_status).text.toString()
+        assertTrue(text.contains("open the shared app"))
+        assertFalse(text.contains("new consent"))
+        VideoDiagnosticsWire.validate(VideoDiagnostics.snapshot(1, 13))
+        assertEquals("capture_paused", VideoDiagnostics.snapshot(1, 13).getString("state"))
+        controller.pause().stop().destroy()
+    }
+
     private fun result(activity: VideoCaptureActivity, code: Int, intent: Intent?) {
         ReflectionHelpers.callInstanceMethod<Void>(activity, "onActivityResult",
             ClassParameter.from(Int::class.javaPrimitiveType, 10),

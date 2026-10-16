@@ -3,7 +3,6 @@ package io.github.kiroha.dashcast.satellite.capture
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
-import android.os.Build
 import android.view.Surface
 import org.webrtc.CapturerObserver
 import org.webrtc.SurfaceTextureHelper
@@ -22,35 +21,35 @@ internal class ProjectionTextureCapturer(
     private val density: Int,
     private val stopped: (String) -> Unit,
     private val resized: (Int, Int) -> Unit,
+    private val availabilityChanged: (Boolean) -> Unit,
 ) : Closeable {
     private val closed = AtomicBoolean()
     private var display: VirtualDisplay? = null
     private var surface: Surface? = null
-    private var valid = true
-    private var observedTexture = false
+    private val availability: CaptureAvailability = CaptureAvailability { ready ->
+        helper.handler.removeCallbacks(repeat)
+        availabilityChanged(ready) // The owner posts to its worker; never wait from this callback.
+        if (ready && deliveryEnabled) helper.handler.postDelayed(repeat, 500)
+    }
+    val available: Boolean get() = availability.ready
     private var lastOutputNs = 0L
     private var deliveryEnabled = false
     private val projectionCallback = object : MediaProjection.Callback() {
-        override fun onStop() { valid = false; stopped("capture_revoked") }
+        override fun onStop() { availability.stop(); stopped("capture_revoked") }
         override fun onCapturedContentResize(width: Int, height: Int) {
             if (!closed.get() && width > 0 && height > 0) resize(width, height)
         }
         override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
             if (closed.get()) return
-            valid = isVisible
-            helper.handler.removeCallbacks(hiddenDeadline)
-            helper.handler.removeCallbacks(repeat)
-            if (isVisible && deliveryEnabled) helper.handler.postDelayed(repeat, 500)
-            else if (!isVisible) helper.handler.postDelayed(hiddenDeadline, 5000)
+            availability.visibility(isVisible)
         }
     }
-    private val hiddenDeadline = Runnable { if (!closed.get() && !valid) stopped("capture_hidden") }
-    private val repeat = object : Runnable {
+    private val repeat: Runnable = object : Runnable {
         override fun run() {
-            if (closed.get() || !valid || !deliveryEnabled || display == null) return
+            if (closed.get() || !availability.ready || !deliveryEnabled || display == null) return
             // A static map still needs decoded frames. Read the live SurfaceTexture again, rather
             // than retaining a buffer (which would prevent SurfaceTextureHelper receiving updates).
-            if (observedTexture && surface?.isValid == true) helper.forceFrame()
+            if (surface?.isValid == true) helper.forceFrame()
             helper.handler.postDelayed(this, 500)
         }
     }
@@ -63,8 +62,7 @@ internal class ProjectionTextureCapturer(
             resized(size.first, size.second)
             surface = Surface(helper.surfaceTexture)
             helper.startListening { frame ->
-                if (!closed.get() && valid) {
-                    observedTexture = true
+                if (!closed.get() && availability.texture(frame.timestampNs)) {
                     if (!deliveryEnabled) return@startListening
                     val now = System.nanoTime()
                     if (now - lastOutputNs >= 1_000_000_000L / VideoPolicy.FPS) {
@@ -80,11 +78,12 @@ internal class ProjectionTextureCapturer(
             display = projection.createVirtualDisplay("DashSat video", size.first, size.second,
                 density, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface,
                 object : VirtualDisplay.Callback() {
-                    override fun onPaused() { valid = false; stopped("capture_paused") }
-                    override fun onStopped() { valid = false; if (!closed.get()) stopped("capture_stopped") }
+                    override fun onPaused() { if (!closed.get()) availability.displayResumed(false) }
+                    override fun onResumed() { if (!closed.get()) availability.displayResumed(true) }
+                    override fun onStopped() { availability.stop(); if (!closed.get()) stopped("capture_stopped") }
                 }, helper.handler) ?: error("capture_unavailable")
             observer.onCapturerStarted(true)
-            if (deliveryEnabled) helper.handler.postDelayed(repeat, 500)
+            if (deliveryEnabled && availability.ready) helper.handler.postDelayed(repeat, 500)
         })
     }
     fun setDeliveryEnabled(enabled: Boolean) {
@@ -95,7 +94,7 @@ internal class ProjectionTextureCapturer(
             // The same continuously valid VD/surface supplies current textures. No buffer is
             // retained while waiting; forceFrame also keeps a static live map available on resume.
             helper.handler.removeCallbacks(repeat)
-            if (enabled && valid) helper.handler.postDelayed(repeat, 500)
+            if (enabled && availability.ready) helper.handler.postDelayed(repeat, 500)
         })
     }
     private fun resize(width: Int, height: Int) {
@@ -107,9 +106,8 @@ internal class ProjectionTextureCapturer(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         ThreadUtils.invokeAtFrontUninterruptibly(helper.handler, Runnable {
-            valid = false
+            availability.stop()
             helper.handler.removeCallbacks(repeat)
-            helper.handler.removeCallbacks(hiddenDeadline)
             helper.stopListening()
             display?.release(); display = null
             surface?.release(); surface = null

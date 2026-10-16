@@ -89,11 +89,13 @@
     <string name="video_none">none selected</string>
     <string name="video_help_app">Set up while parked. Start the DashSat connection, choose an app, then Start video sharing. In Android’s sharing dialog, choose that same app; Android decides what is captured. You can then leave CarPlay and open Preview received map in DashCast. The authorized sharing session waits for the viewer. The launch selection does not verify the shared app.</string>
     <string name="video_help_display">Set up while parked. Start the DashSat connection, choose an app, then Start video sharing. This Android version shares the entire box screen. You can then leave CarPlay and open Preview received map in DashCast; the authorized sharing session waits for the viewer.</string>
-    <string name="video_privacy">Screen sharing may include personal information. Protected content may be blank. Keep interaction on the box or main display. Stop from the notification while another app is open. Hiding the DashCast viewer pauses video but keeps screen sharing authorized on this device. Connection loss, lock, revocation or Stop ends sharing and requires new Android consent. Guidance remains independent.</string>
+    <string name="video_privacy">Screen sharing may include personal information. Protected content may be blank. Keep interaction on the box or main display. Stop from the notification while another app is open. Hiding the shared app or the DashCast viewer pauses video but keeps screen sharing authorized on this device. Reopen the shared app and viewer to resume; Android must provide a new frame. Connection loss, lock, revocation or Stop ends sharing and requires new Android consent. Guidance remains independent.</string>
     <string name="video_performance">Starts at up to 960×540, 15 fps and 1.5 Mbps using a hardware encoder on this device. The car must still decode and display video. Lower car CPU/GPU use requires comparison on your vehicle; it is not guaranteed by connection alone.</string>
     <string name="video_consent_pending">Waiting for Android screen sharing permission…</string>
     <string name="video_ready">Connected · Android consent required to start; the viewer can open later</string>
     <string name="video_connection_required">Start the DashSat connection first</string>
+    <string name="video_source_paused">Screen sharing paused · open the shared app on this device. Sharing resumes in the same authorized session when Android provides a new frame and DashCast is ready.</string>
+    <string name="video_notification_source_paused">Screen sharing paused · open the shared app</string>
     <string name="video_waiting_viewer">Screen sharing active · waiting for DashCast. Return to DashCast and open Preview received map.</string>
     <string name="video_streaming">Video connected · check the image in DashCast</string>
     <string name="video_connecting">Preparing capture and video connection…</string>

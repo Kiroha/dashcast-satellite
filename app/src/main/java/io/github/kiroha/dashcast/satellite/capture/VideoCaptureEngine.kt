@@ -10,6 +10,7 @@ internal interface VideoCaptureEngine : Closeable {
     fun viewerChanged(ready: Boolean)
     fun signal(message: JSONObject)
     fun collectStats()
+    val needsStats: Boolean
 }
 
 /** Serialized by the service worker. A capture is initialized once, even across viewer resumes. */

@@ -51,7 +51,7 @@ class VideoCaptureServiceTest {
         grant = Shadow.extract(projection)
         engine = FakeEngine()
         service.createProjection = { grants++; projection }
-        service.createEngine = { _, _, _, _ -> engine }
+        service.createEngine = { _, _, post, _, changed -> engine.apply { postAction = post; stateChanged = changed } }
         owner = link(501); VideoControlBridge.connected(owner)
     }
     @After fun cleanup() {
@@ -154,6 +154,68 @@ class VideoCaptureServiceTest {
         assertFalse(VideoDiagnostics.summary().contains("private screen title"))
         assertEquals(0, engine.starts)
     }
+    @Test fun `temporary hidden capture keeps grant Stop notification and resumes stats without new consent`() {
+        start(); flushWorker(); signal("video.ready")
+        val looper = shadowOf(ReflectionHelpers.getField<Handler>(service, "worker").looper)
+        looper.idleFor(Duration.ofMillis(1500))
+        engine.sourceChanged(false); flushWorker()
+        assertEquals("capture_paused", VideoState.status)
+        assertTrue(VideoState.active); assertTrue(VideoState.captureBusy)
+        assertEquals(0, engine.closes); assertEquals(0, grant.stops)
+        val notification = shadowOf(service.getSystemService(NotificationManager::class.java)).getNotification(2)
+        assertEquals("Screen sharing paused · open the shared app", notification.extras.getString(Notification.EXTRA_TEXT))
+        assertEquals(1, notification.actions.size)
+        val count = engine.stats
+        looper.idleFor(Duration.ofSeconds(60))
+        assertEquals(count, engine.stats)
+        engine.sourceChanged(true); flushWorker()
+        looper.idleFor(Duration.ofMillis(1500))
+        assertEquals(2, engine.resumes); assertEquals(1, engine.starts); assertEquals(1, grants)
+        assertTrue(engine.stats > count)
+    }
+    @Test fun `source resumes without a viewer only waits and never polls or acquires a second grant`() {
+        start(); flushWorker(); signal("video.ready")
+        engine.sourceChanged(false); flushWorker()
+        signal("video.closed")
+        engine.sourceChanged(true); flushWorker()
+        assertEquals("waiting_viewer", VideoState.status)
+        assertEquals(1, engine.resumes); assertEquals(1, grants)
+        val count = engine.stats
+        shadowOf(ReflectionHelpers.getField<Handler>(service, "worker").looper).idleFor(Duration.ofSeconds(60))
+        assertEquals(count, engine.stats)
+        signal("video.ready")
+        assertEquals(2, engine.resumes); assertEquals(1, grants)
+    }
+    @Test fun `revocation while source paused stays terminal despite a late source resume`() {
+        start(); flushWorker(); signal("video.ready")
+        engine.sourceChanged(false); flushWorker()
+        grant.revoke(); flushWorker()
+        engine.sourceChanged(true); flushWorker()
+        assertEquals("capture_revoked", VideoState.status)
+        assertEquals(1, engine.resumes); assertEquals(1, grants)
+    }
+
+    @Test fun `failed source resume callback cannot escape the worker and strand the capture lease`() {
+        start(); flushWorker(); signal("video.ready")
+        engine.sourceChanged(false); flushWorker()
+        engine.resuming = { throw IllegalStateException("private codec SDP route") }
+        engine.sourceChanged(true); flushWorker()
+        assertEquals("capture_unavailable", VideoState.status)
+        assertFalse(VideoDiagnostics.summary().contains("private codec SDP route"))
+        destroyAndJoin()
+        assertEquals(1, engine.closes); assertTrue(grant.stops >= 1)
+        controller = Robolectric.buildService(VideoCaptureService::class.java).create()
+        service = controller.get()
+    }
+    @Test fun `native linkage failure during asynchronous source resume terminates safely`() {
+        start(); flushWorker(); signal("video.ready")
+        engine.sourceChanged(false); flushWorker()
+        engine.resuming = { throw UnsatisfiedLinkError("private native diagnostic") }
+        engine.sourceChanged(true); flushWorker()
+        assertEquals("native_unavailable", VideoState.status)
+        assertFalse(VideoDiagnostics.summary().contains("private native diagnostic"))
+    }
+
     private fun start() {
         service.onStartCommand(Intent().setAction(VideoCaptureService.START)
             .putExtra(VideoCaptureService.CONSENT, Intent()).putExtra(VideoCaptureService.GENERATION, owner.generation), 0, 1)
@@ -178,11 +240,25 @@ class VideoCaptureServiceTest {
         var starts = 0; var resumes = 0; var closes = 0; var stats = 0
         var starting: () -> Unit = {}
         private var sending = false
+        var sourceReady = true
+        var resuming: () -> Unit = {}
+        var viewerReady = false
+        var postAction: (() -> Unit) -> Unit = { it() }
+        var stateChanged: () -> Unit = {}
+        override val needsStats: Boolean get() = sending
+        fun sourceChanged(value: Boolean) { postAction {
+            sourceReady = value
+            if (!value) { sending = false; VideoState.status = "capture_paused" }
+            else { resuming(); viewerChanged(viewerReady) }
+            stateChanged()
+        } }
         override fun start(projection: MediaProjection, width: Int, height: Int, density: Int) { starts++; starting() }
         override fun viewerChanged(ready: Boolean) {
-            if (ready && !sending) resumes++
-            sending = ready
-            VideoState.status = if (ready) "negotiating" else "waiting_viewer"
+            viewerReady = ready
+            val send = ready && sourceReady
+            if (send && !sending) resumes++
+            sending = send
+            VideoState.status = if (!sourceReady) "capture_paused" else if (ready) "negotiating" else "waiting_viewer"
         }
         override fun signal(message: JSONObject) = Unit
         override fun collectStats() { stats++ }

@@ -38,9 +38,17 @@ It never calls `getMediaProjection` again or creates a second VirtualDisplay fro
 Before the first viewer is ready, native video resources and the VirtualDisplay are deferred;
 a projection callback observes revocation throughout the initial waiting period.
 
+Temporarily covering the shared app or pausing its VirtualDisplay suspends video within the same
+valid authorized session. **Screen sharing paused · open the shared app** keeps Stop available;
+open the app that Android is actually sharing, then return to the DashCast viewer. Android must
+report both visible content and a resumed display and provide a new platform texture before the
+sender creates a fresh peer. An old queued/static texture cannot establish source freshness. There
+is no five-second hidden-app deadline, no second VirtualDisplay and no reuse of a stopped grant.
+An app Android considers hidden is not an independently rendered invisible application display.
+
 Control/LAN loss or replacement of the authenticated WSS generation, lock/screen-off, capture
-revocation/pause, persistently hidden shared source content, Stop or a fatal video failure ends the
-session and frees projection/encoder/peer/VirtualDisplay. A new Android user consent is then required.
+revocation (`MediaProjection.Callback.onStop`), VirtualDisplay stop, Stop or a fatal video failure
+ends the session and frees projection/encoder/peer/VirtualDisplay. New Android consent is then required.
 Receiver visibility and captured source visibility are separate: hiding the receiver does not permit
 replaying hidden/revoked source content. Guidance reconnects through its existing service. Within
 one valid capture, at most two new negotiation IDs per visible-viewer period may recover a viewer
@@ -55,7 +63,9 @@ native stats requests; the stats timer is inactive. After the first activation, 
 VirtualDisplay may still incur box composition work while waiting; zero box GPU use is not promised.
 Static live content refreshes twice per second while a viewer is ready, without
 holding a texture buffer, so the receiver can observe decoded-frame progress beyond six seconds.
-Visibility/pause/revocation callbacks and the live surface/VirtualDisplay bound this refresh. A
+Visibility/pause/revocation callbacks and the live surface/VirtualDisplay bound this refresh.
+After a source interruption, fresh source timestamps establish a new output epoch before repeats
+can resume; a cached forced frame or late older callback cannot lower that timestamp floor. A
 firmware capture stall that leaves all platform callbacks falsely active cannot be distinguished
 from a static scene by this app alone; validate source-loss behavior on the real box.
 
@@ -79,7 +89,9 @@ notifications or arbitrary native diagnostic logs are written to support logs.
 ## Video activity after switching displays
 
 Returning to CarPlay hides the main-display DashCast viewer, so **waiting for DashCast** is
-expected there. It does not describe what happened while the viewer was visible. DashSat's
+expected there when the shared source is still available. **Screen sharing paused · open the
+shared app** instead means Android hid or paused that source; this remains a valid sharing session.
+Neither status describes what happened while the viewer was previously visible. DashSat's
 **Recent video activity** retains up to 32 process-local stages, with the eight newest shown
 on the video page and all retained stages available through **Copy video diagnostics**.
 Local session numbers distinguish separate authorized sharing attempts; the latest stage is
@@ -152,9 +164,26 @@ codec. Test static maps for over a minute, moving content, app sharing resize/ro
 capture Stop, Android revoke/lock (including before the first viewer), Wi-Fi loss/recovery, and
 repeated consent sessions. Test the actual shared-screen order: consent on the box with no visible
 viewer, launch the chosen app, leave CarPlay, open Preview, return to CarPlay, then reopen Preview
-without granting another consent while the same session remains valid. No session may resume after
+without granting another consent while the same session remains valid. Cover the actually shared
+app for more than five seconds, return to it, then reopen the viewer: the same consent/VirtualDisplay
+must resume only after a new visible texture. Also test display pause/resume and source visibility
+restoring in either order, hidden/visible callback bursts, Stop from the paused notification, and no
+stats/encoder/watchdog work while either endpoint is unavailable. No session may resume after
 Stop, revoke, lock or control loss. Stop/revoke must
 release actual MediaProjection, virtual display, peer, codec, texture helper and service, with no stale
 image. Cluster projection teardown must close its viewer without changing OEM restoration behavior.
 Retest guidance alongside video and with satellite disabled. All vehicle video/performance results
 remain pending until measured; emulator/JVM/JavaScript checks do not establish hardware acceptance.
+
+## Android capture callback boundaries
+
+[MediaProjection.Callback](https://developer.android.com/reference/android/media/projection/MediaProjection.Callback)
+distinguishes captured-content visibility from `onStop`, which invalidates the projection.
+[VirtualDisplay.Callback](https://developer.android.com/reference/android/hardware/display/VirtualDisplay.Callback)
+provides separate `onPaused`, `onResumed` and terminal `onStopped` events. The sender retains one
+continuously authorized projection/display through temporary pauses and releases it on terminal
+loss, following the [MediaProjection session rules](https://developer.android.com/media/grow/media-projection).
+The foreground notification remains visible and stoppable during a pause. JVM/state-machine checks
+verify these application boundaries; actual Android 15/Tbox callbacks and resumed video remain to
+be confirmed on the hardware. This lifecycle correction does not identify the cause of H264 RTP
+arriving without a decoded first frame in the earlier short vehicle attempt.

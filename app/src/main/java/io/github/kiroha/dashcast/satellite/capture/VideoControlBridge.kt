@@ -58,5 +58,5 @@ object VideoState {
         internal set
     @Volatile var captureBusy = false
         internal set
-    val active: Boolean get() = status in setOf("starting", "waiting_viewer", "negotiating", "connected_waiting_frames", "streaming")
+    val active: Boolean get() = status in setOf("starting", "waiting_viewer", "capture_paused", "negotiating", "connected_waiting_frames", "streaming")
 }

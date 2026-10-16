@@ -41,8 +41,9 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
         getSystemService(MediaProjectionManager::class.java).getMediaProjection(Activity.RESULT_OK, consent)
             ?: error("consent_required")
     }
-    internal var createEngine: (Context, VideoLink, (() -> Unit) -> Unit, (String) -> Unit) -> VideoCaptureEngine =
-        { context, link, post, failed -> NativeVideoSender(context, link, post, failed) { !ending && canCapture() } }
+    internal var createEngine: (Context, VideoLink, (() -> Unit) -> Unit, (String) -> Unit, () -> Unit) -> VideoCaptureEngine =
+        { context, link, post, failed, changed -> NativeVideoSender(context, link, post, failed,
+            active = { !ending && canCapture() }, stateChanged = changed) }
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() { finishCapture("capture_revoked") }
     }
@@ -55,10 +56,10 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
     private val queued = AtomicInteger()
     private val stats = object : Runnable {
         override fun run() {
-            if (ending || owner?.viewerReady != true) return
-            sender?.collectStats()
-            updateNotification()
-            worker.postDelayed(this, 1000)
+            if (ending || owner?.viewerReady != true || sender?.needsStats != true) return
+            safely { sender?.collectStats(); updateNotification() }
+            if (!ending && owner?.viewerReady == true && sender?.needsStats == true)
+                worker.postDelayed(this, 1000)
         }
     }
     override fun onCreate() {
@@ -103,7 +104,9 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
                     value.registerCallback(projectionCallback, worker)
                     if (ending) return@post
                     val metrics = resources.displayMetrics
-                    sender = createEngine(applicationContext, link, ::post) { finishCapture(it) }
+                    sender = createEngine(applicationContext, link, ::post, { finishCapture(it) }) {
+                        if (!ending) { updateNotification(); scheduleStats() }
+                    }
                     sender!!.start(value, metrics.widthPixels, metrics.heightPixels, metrics.densityDpi)
                     if (ending) return@post
                     sender!!.viewerChanged(link.viewerReady)
@@ -136,6 +139,7 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
         if (ending) return
         val text = when (VideoState.status) {
             "waiting_viewer" -> R.string.video_notification_waiting
+            "capture_paused" -> R.string.video_notification_source_paused
             "streaming" -> R.string.video_notification
             else -> R.string.video_notification_preparing
         }
@@ -146,12 +150,17 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
     }
     private fun canCapture(): Boolean = getSystemService(PowerManager::class.java).isInteractive &&
         !getSystemService(KeyguardManager::class.java).isDeviceLocked
+    private fun safely(action: () -> Unit) {
+        try { action() }
+        catch (error: LinkageError) { VideoDiagnostics.exception(VideoDiagnostics.Event.NATIVE_UNAVAILABLE, error); finishCapture("native_unavailable") }
+        catch (error: Exception) { VideoDiagnostics.exception(VideoDiagnostics.Event.CAPTURE_UNAVAILABLE, error); finishCapture("capture_unavailable") }
+    }
     private fun post(action: () -> Unit) {
-        if (!ending) worker.post { if (!ending) action() }
+        if (!ending) worker.post { if (!ending) safely(action) }
     }
     private fun scheduleStats() {
         worker.removeCallbacks(stats)
-        if (!ending && owner?.viewerReady == true) worker.postDelayed(stats, 1000)
+        if (!ending && owner?.viewerReady == true && sender?.needsStats == true) worker.postDelayed(stats, 1000)
     }
     override fun linkChanged(link: VideoLink?) { post { if (owner !== link) finishCapture("control_unavailable") } }
     override fun signal(link: VideoLink, message: org.json.JSONObject) {

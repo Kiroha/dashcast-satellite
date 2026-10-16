@@ -30,7 +30,7 @@ class VideoCaptureActivity : Activity() {
         override fun run() {
             render()
             if (launchDeadline != 0L) {
-                if (VideoState.status in setOf("waiting_viewer", "negotiating", "connected_waiting_frames", "streaming")) {
+                if (VideoState.status in setOf("waiting_viewer", "capture_paused", "negotiating", "connected_waiting_frames", "streaming")) {
                     launchDeadline = 0L; openChosen()
                 } else if (android.os.SystemClock.elapsedRealtime() >= launchDeadline || !(VideoState.active || VideoState.captureBusy)) {
                     launchDeadline = 0L
@@ -152,6 +152,7 @@ class VideoCaptureActivity : Activity() {
         findViewById<TextView>(R.id.video_status).setText(when {
             consentPending -> R.string.video_consent_pending
             VideoState.status == "waiting_viewer" -> R.string.video_waiting_viewer
+            VideoState.status == "capture_paused" -> R.string.video_source_paused
             VideoState.status == "streaming" -> R.string.video_streaming
             VideoState.status in setOf("starting", "negotiating", "connected_waiting_frames") -> R.string.video_connecting
             VideoState.status == "control_unavailable" -> R.string.video_control_lost

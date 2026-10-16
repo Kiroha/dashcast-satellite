@@ -145,3 +145,15 @@ disconnect; disable/revoke/restart/different-peer authentication must clear it. 
 waiting capture states; diagnostics must not start capture, freshen guidance or claim decoded video.
 Test a legacy receiver (send disabled), LAN loss during send (unconfirmed), repeated sends, and a
 new control session; no old snapshot may be replayed automatically.
+
+### Source visibility continuity (0.9.3-dev)
+
+While parked, share ABRP, open DashCast Preview for at least fifteen seconds, then return to
+CarPlay/DashSat so the shared app is covered for more than five seconds. The session must remain
+active/stoppable and show the paused-source explanation. Open the actually shared app and return
+to Preview: the same consent and VirtualDisplay must resume with a fresh peer and new texture.
+Test visibility and VirtualDisplay pause/resume in both orders, repeated foreground changes, a
+static scene after resume, Stop while paused, revocation, screen lock and LAN loss. Terminal loss
+must require new consent. Keep the central preview decoder closed while that preview is hidden;
+an independently visible cluster viewer follows its own destination lifecycle. All of these actual
+vehicle video and CPU/GPU checks remain pending until measured.

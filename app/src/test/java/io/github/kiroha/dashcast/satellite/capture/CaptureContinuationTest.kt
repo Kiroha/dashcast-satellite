@@ -12,6 +12,8 @@ class CaptureContinuationTest {
         var pauses = 0
         var initialized = false
         var ended = false
+        var peerEpoch: Long? = null
+        var deliveryEpoch: Long? = null
         val callbacks = ArrayDeque<() -> Unit>()
         val capture: CaptureAvailability = CaptureAvailability { ready -> callbacks.addLast {
             if (!ended) {
@@ -20,7 +22,8 @@ class CaptureContinuationTest {
         } }
         val viewer: ViewerCaptureSession = ViewerCaptureSession(
             initialize = { displays++; initialized = true },
-            resume = { peers++ }, pause = { pauses++ }, waiting = {},
+            resume = { peers++; peerEpoch = capture.readyEpoch; deliveryEpoch = capture.readyEpoch },
+            pause = { pauses++; peerEpoch = null; deliveryEpoch = null }, waiting = {},
             isReady = { !ended && viewerReady && (!initialized || capture.ready) },
         )
         fun drain() { while (callbacks.isNotEmpty()) callbacks.removeFirst()() }
@@ -59,6 +62,24 @@ class CaptureContinuationTest {
         assertEquals(1, session.peers); assertEquals(1, session.displays)
         session.viewerReady = true; session.viewer.reconcile()
         assertEquals(2, session.peers); assertEquals(1, session.displays)
+    }
+    @Test fun `queued old watchdog stats and texture delivery remain fenced before the pause worker drains`() {
+        val session = Session()
+        session.viewer.reconcile(); session.capture.texture(100); session.drain()
+        val watchdog = EncodedFrameWatchdog(0)
+        session.capture.visibility(false); session.capture.visibility(true); session.capture.texture(101)
+        assertTrue(session.capture.ready) // Both callbacks are still queued behind an old stats tick.
+        assertFalse(session.capture.owns(session.peerEpoch))
+        assertFalse(session.capture.owns(session.deliveryEpoch))
+        var ended = false
+        if (session.capture.owns(session.peerEpoch)) {
+            watchdog.failure(60_000_000_000L)?.let { ended = true }
+        }
+        assertFalse(ended)
+        session.drain()
+        assertEquals(2, session.peers); assertEquals(1, session.displays)
+        assertTrue(session.capture.owns(session.peerEpoch))
+        assertTrue(session.capture.owns(session.deliveryEpoch))
     }
     @Test fun `both visibility and display must restore before a new peer while terminal stop forbids revival`() {
         val session = Session()

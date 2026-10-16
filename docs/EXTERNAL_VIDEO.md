@@ -65,7 +65,9 @@ Static live content refreshes twice per second while a viewer is ready, without
 holding a texture buffer, so the receiver can observe decoded-frame progress beyond six seconds.
 Visibility/pause/revocation callbacks and the live surface/VirtualDisplay bound this refresh.
 After a source interruption, fresh source timestamps establish a new output epoch before repeats
-can resume; a cached forced frame or late older callback cannot lower that timestamp floor. A
+can resume; a cached forced frame or late older callback cannot lower that timestamp floor.
+An immutable ready/epoch snapshot fences old peer callbacks, stats/watchdog ticks and texture
+forwarding permits even if the source becomes ready before its ordered worker pause drains. A
 firmware capture stall that leaves all platform callbacks falsely active cannot be distinguished
 from a static scene by this app alone; validate source-loss behavior on the real box.
 

@@ -23,6 +23,7 @@ internal class NativeVideoSender(
     private var capture: ProjectionTextureCapturer? = null
     private var projection: MediaProjection? = null
     private var peer: PeerConnection? = null
+    private var peerCaptureEpoch: Long? = null
     private var attempt: VideoNegotiation? = null
     private var closed = false
     private var retries = 0
@@ -36,7 +37,11 @@ internal class NativeVideoSender(
     private val sharingSession = VideoDiagnostics.currentShare()
     private val viewerSession = ViewerCaptureSession(
         initialize = { initializeCapture() },
-        resume = { retries = 0; capture?.setDeliveryEnabled(true); track?.setEnabled(true); negotiate() },
+        resume = {
+            capture?.readyEpoch?.let { epoch ->
+                retries = 0; capture?.setDeliveryEnabled(true, epoch); track?.setEnabled(true); negotiate(epoch)
+            }
+        },
         pause = { track?.setEnabled(false); capture?.setDeliveryEnabled(false); disposePeer() },
         waiting = { if (active()) {
             val status = if (capture?.available == false) "capture_paused" else "waiting_viewer"
@@ -94,9 +99,11 @@ internal class NativeVideoSender(
         capture!!.start(width, height)
         VideoDiagnostics.record(VideoDiagnostics.Event.CAPTURE_INITIALIZED)
     }
-    private fun negotiate() {
-        if (closed || !active() || !link.viewerReady || VideoControlBridge.link !== link || capture?.available != true) return
+    private fun negotiate(captureEpoch: Long) {
+        if (closed || !active() || !link.viewerReady || VideoControlBridge.link !== link || capture?.owns(captureEpoch) != true) return
         disposePeer()
+        if (capture?.owns(captureEpoch) != true) return
+        peerCaptureEpoch = captureEpoch
         val current = VideoNegotiation(UUID.randomUUID().toString()).also { attempt = it }
         val config = PeerConnection.RTCConfiguration(emptyList()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -187,34 +194,39 @@ internal class NativeVideoSender(
                 "video.error" -> {
                     VideoDiagnostics.record(VideoDiagnostics.Event.RECEIVER_ERROR)
                     // The waiting viewer remains available after an error; no new ready event is needed.
-                    if (++retries <= 2) negotiate() else failed("receiver_video_failed")
+                    if (++retries <= 2) peerCaptureEpoch?.let(::negotiate)
+                    else if (owns(current)) failed("receiver_video_failed")
                 }
             }
-        } catch (error: Exception) { VideoDiagnostics.exception(VideoDiagnostics.Event.NEGOTIATION_FAILED, error); failed("video_protocol_failed") }
+        } catch (error: Exception) { if (owns(current)) {
+            VideoDiagnostics.exception(VideoDiagnostics.Event.NEGOTIATION_FAILED, error); failed("video_protocol_failed")
+        } }
     }
     private fun applyIce(raw: String, current: VideoNegotiation) {
         if (!owns(current)) return
         val message = JSONObject(raw)
         if (peer?.addIceCandidate(IceCandidate(message.getString("sdpMid"), message.getInt("sdpMLineIndex"),
-            message.getString("candidate"))) != true) failed("ice_failed")
+            message.getString("candidate"))) != true && owns(current)) failed("ice_failed")
     }
     private fun send(raw: String, current: VideoNegotiation) {
         val completion = VideoSendCompletion(VideoDiagnostics.Event.ICE_SENT, sharingSession, post,
             owns = { owns(current) }, failed = { failed("control_unavailable") })
         link.send(JSONObject(raw), completion::complete)
     }
-    private fun owns(value: VideoNegotiation) = !closed && active() && capture?.available == true && link.viewerReady && attempt === value && !value.closed && VideoControlBridge.link === link
+    private fun owns(value: VideoNegotiation) = !closed && active() && capture?.owns(peerCaptureEpoch) == true && link.viewerReady && attempt === value && !value.closed && VideoControlBridge.link === link
     private fun sdpObserver(current: VideoNegotiation, created: (SessionDescription) -> Unit = {}, applied: () -> Unit = {}) =
         object : SdpObserver {
-            override fun onCreateSuccess(description: SessionDescription) { post { if (owns(current)) runGuarded { created(description) } } }
-            override fun onSetSuccess() { post { if (owns(current)) runGuarded(applied) } }
+            override fun onCreateSuccess(description: SessionDescription) { post { if (owns(current)) runGuarded(current) { created(description) } } }
+            override fun onSetSuccess() { post { if (owns(current)) runGuarded(current, applied) } }
             override fun onCreateFailure(error: String) { post { if (owns(current)) failed("negotiation_failed") } }
             override fun onSetFailure(error: String) { post { if (owns(current)) failed("negotiation_failed") } }
         }
-    private fun runGuarded(action: () -> Unit) { try { action() } catch (error: Exception) {
-        VideoDiagnostics.exception(VideoDiagnostics.Event.NEGOTIATION_FAILED, error); failed("negotiation_failed")
+    private fun runGuarded(current: VideoNegotiation, action: () -> Unit) { try { action() } catch (error: Exception) {
+        if (owns(current)) {
+            VideoDiagnostics.exception(VideoDiagnostics.Event.NEGOTIATION_FAILED, error); failed("negotiation_failed")
+        }
     } }
-    override val needsStats: Boolean get() = !closed && peer != null && link.viewerReady && capture?.available == true
+    override val needsStats: Boolean get() = !closed && peer != null && link.viewerReady && capture?.owns(peerCaptureEpoch) == true
     override fun collectStats() {
         if (!needsStats || VideoControlBridge.link !== link) { viewerSession.reconcile(); return }
         frameWatchdog?.failure(System.nanoTime())?.let {
@@ -253,7 +265,7 @@ internal class NativeVideoSender(
     }
     private fun disposePeer() {
         attempt?.let { it.close(); link.endNegotiation(it.id) }; attempt = null
-        peer?.let { runCatching { it.close() }; runCatching { it.dispose() } }; peer = null
+        peer?.let { runCatching { it.close() }; runCatching { it.dispose() } }; peer = null; peerCaptureEpoch = null
         statsPending = false; lastStatsUs = 0.0; lastBytes = 0L; frameWatchdog = null
     }
     override fun close() {

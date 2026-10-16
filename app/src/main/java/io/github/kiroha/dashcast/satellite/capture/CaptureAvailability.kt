@@ -9,8 +9,11 @@ internal class CaptureAvailability(private val changed: (Boolean) -> Unit) {
     private var stopped = false
     private var fresh = false
     private var lastTexture: Long? = null
-    @Volatile var ready = false
-        private set
+    private data class Output(val ready: Boolean, val epoch: Long)
+    @Volatile private var output = Output(false, 0)
+    val ready: Boolean get() = output.ready
+    val readyEpoch: Long? get() = output.let { if (it.ready) it.epoch else null }
+    fun owns(epoch: Long?): Boolean = output.let { it.ready && it.epoch == epoch }
     fun visibility(value: Boolean) {
         if (stopped) return
         visible = value
@@ -35,6 +38,12 @@ internal class CaptureAvailability(private val changed: (Boolean) -> Unit) {
     fun stop() { stopped = true; fresh = false; reconcile() }
     private fun reconcile() {
         val value = !stopped && visible && resumed && fresh
-        if (value != ready) { ready = value; changed(value) }
+        val previous = output
+        if (value != previous.ready) {
+            // Publish readiness and epoch atomically: a worker must never combine old ownership
+            // with restored readiness before its ordered pause callback has drained.
+            output = Output(value, previous.epoch + if (!value) 1 else 0)
+            changed(value)
+        }
     }
 }

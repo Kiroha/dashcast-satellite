@@ -64,6 +64,21 @@ class CaptureAvailabilityTest {
             assertTrue(source.texture(101))
         }
     }
+    @Test fun `restored availability never revives a previous peer or delivery epoch`() {
+        val source = CaptureAvailability {}
+        source.texture(100)
+        val old = source.readyEpoch
+        assertTrue(source.owns(old))
+        source.visibility(false)
+        assertFalse(source.owns(old))
+        source.visibility(true); source.texture(101)
+        assertTrue(source.ready)
+        assertFalse(source.owns(old))
+        assertTrue(source.owns(source.readyEpoch))
+        source.displayResumed(false); source.displayResumed(true); source.texture(102)
+        assertFalse(source.owns(old))
+        assertFalse(source.owns(null))
+    }
     @Test fun `source visibility and display pause remain distinct until both restore`() {
         for (visibleFirst in listOf(true, false)) {
             val source = CaptureAvailability {}

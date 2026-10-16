@@ -214,3 +214,16 @@ Physical validation of the actual Maps version on the Tbox and the vehicle's HUD
 pending. Corpus recognition does not prove coverage of every Maps rendering. Under unchanged v1,
 merge glyphs and roundabouts without an explicit exit remain unsupported. ABRP remains text-only;
 video capture is not implemented.
+
+
+## 0.9.4-dev first-frame diagnostics
+
+233 unit/protocol/transport tests passed across 36 suites, with zero failures, errors or skipped tests.
+Android debug lint reported zero issues and debug assembly passed. Protocol v1 is pinned, byte for
+byte with fixture hashes, to reviewed receiver commit `9a330c867eafef6e5f6e74bf43cefe2497b70a94`;
+pairing and navigation fixtures remain unchanged. The tests cover the exact capability matrix,
+legacy serialization, immutable pending transfer ownership, maximum complete UTF-8 snapshot size,
+missing versus zero counters, keyframe relationships and closed-attempt original sample retention.
+Capture lifecycle and encoded-frame supervision remain independent of these observational fields.
+Real Tbox/vehicle first-image diagnosis and decoding performance remain pending; these checks do
+not establish a successful image or hardware decoder use.

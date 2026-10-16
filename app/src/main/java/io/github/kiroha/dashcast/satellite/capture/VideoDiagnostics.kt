@@ -79,6 +79,7 @@ object VideoDiagnostics {
                 Event.entries.filter { counts[it.ordinal] > 0 }
                     .joinToString(" ") { "${it.name.lowercase()}=${counts[it.ordinal]}" } + "\n" + recent(32)
     }
+    internal val sender = VideoSenderDiagnostics()
     private val timeline = Timeline()
     fun record(event: Event, cause: Cause = Cause.NONE, recent: Boolean = true, sharingSession: Long? = null) =
         timeline.record(event, cause, recent, sharingSession)

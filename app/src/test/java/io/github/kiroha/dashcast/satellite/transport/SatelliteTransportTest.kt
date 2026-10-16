@@ -346,11 +346,12 @@ class SatelliteTransportTest {
 
 
     @Test fun `manual diagnostics use only an opted in pinned control socket and commit ack without a viewer`() {
-        for (capability in listOf<Any?>(null, true, "1", 2, 1)) {
+        for ((capability, details) in listOf<Pair<Any?,Any?>>(null to 1, true to 1, "1" to 1, 2 to 1, 1 to null, 1 to true, 1 to 1)) {
             configureLan { Socket() }
             val connected = CountDownLatch(1); val stopped = CountDownLatch(1)
             val server = TestReceiver(true)
             server.diagnosticsCapability.set(capability)
+            server.diagnosticsDetailsCapability.set(details)
             val transport = SatelliteTransport(app, {
                 if (it.state == TransportState.CONNECTED) connected.countDown()
                 if (it.state == TransportState.STOPPED) stopped.countDown()
@@ -364,6 +365,7 @@ class SatelliteTransportTest {
                 if (capability == 1) {
                     val snapshot = server.diagnostics.poll(3, TimeUnit.SECONDS)
                     assertNotNull(snapshot)
+                    assertEquals(capability == 1 && details == 1, snapshot!!.has("details"))
                     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
                     while (VideoDiagnosticsTransfer.result == VideoDiagnosticsTransfer.Result.SENDING && System.nanoTime() < deadline) Thread.sleep(10)
                     assertEquals(VideoDiagnosticsTransfer.Result.RECEIVED, VideoDiagnosticsTransfer.result)
@@ -555,6 +557,7 @@ class SatelliteTransportTest {
         val genericCapability = AtomicReference<Any?>()
         val navigation = LinkedBlockingQueue<JSONObject>()
         val diagnosticsCapability = AtomicReference<Any?>()
+        val diagnosticsDetailsCapability = AtomicReference<Any?>()
         val diagnostics = LinkedBlockingQueue<JSONObject>()
         init {
             setWebSocketFactory(DefaultSSLWebSocketServerFactory(serverContext()))
@@ -574,6 +577,7 @@ class SatelliteTransportTest {
                     val welcome = JSONObject("""{"type":"welcome","version":1,"session":"test-session","navigationTimeoutMs":6000,"remoteGuidance":true,"videoTransport":"webrtc"}""")
                     genericCapability.get()?.let { welcome.put("genericRoundabouts", it) }
                     diagnosticsCapability.get()?.let { welcome.put("videoDiagnostics", it) }
+                    diagnosticsDetailsCapability.get()?.let { welcome.put("videoDiagnosticsDetails", it) }
                     connection.send(welcome.toString())
                 }
             } else if (JSONObject(message).getString("type") == "diagnostics.video") {

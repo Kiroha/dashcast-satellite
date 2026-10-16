@@ -189,3 +189,13 @@ The foreground notification remains visible and stoppable during a pause. JVM/st
 verify these application boundaries; actual Android 15/Tbox callbacks and resumed video remain to
 be confirmed on the hardware. This lifecycle correction does not identify the cause of H264 RTP
 arriving without a decoded first frame in the earlier short vehicle attempt.
+
+
+### First-frame diagnostics
+
+The manual **Send video diagnostics to DashCast** action retains the latest original stats sample
+from up to four local sender attempts, including attempts already closed when switching screens.
+With a receiver advertising both diagnostics capabilities, the existing snapshot includes nullable
+encoded/keyframe counts, bytes/packets and received PLI/NACK/FIR feedback. Older receivers receive
+the unchanged legacy snapshot. Missing fields remain unknown; historical encoding never confirms
+a decoded or displayed image. No extra polling, socket, codec fallback or capture session is added.

@@ -13,12 +13,14 @@ object VideoDiagnosticsTransfer {
             private set
         @Volatile var result = Result.IDLE
             private set
+        private var detailsSupported = false
         private var generation = -1L
         private var request = 0L
         private var pending: String? = null
         private var requestedAt = 0L
         private var sent = false
-        @Synchronized fun connected(owner: Long, supported: Boolean) {
+        @Synchronized fun connected(owner: Long, supported: Boolean, details: Boolean = false) {
+            detailsSupported = supported && details
             if (result == Result.SENDING) result = Result.FAILED
             generation = owner; request = 0; pending = null; sent = false
             availability = if (supported) Availability.AVAILABLE else Availability.UNSUPPORTED
@@ -26,12 +28,17 @@ object VideoDiagnosticsTransfer {
         @Synchronized fun disconnected(owner: Long) {
             if (generation != owner) return
             if (result == Result.SENDING) result = Result.FAILED
+            detailsSupported = false
             generation = -1; pending = null; sent = false; availability = Availability.DISCONNECTED
         }
-        @Synchronized fun send(snapshot: (Long) -> JSONObject): Boolean {
+        @Synchronized fun send(details: (() -> JSONObject)? = null, snapshot: (Long) -> JSONObject): Boolean {
             if (availability != Availability.AVAILABLE) return false
             if (request >= VideoDiagnosticsWire.MAX_ORDINAL) { result = Result.FAILED; return false }
-            val json = try { snapshot(++request).also { VideoDiagnosticsWire.validate(it) } }
+            val json = try { snapshot(++request).also {
+                // Capability and complete snapshot belong to this authenticated generation.
+                if (detailsSupported && details != null) it.put("details", details()) else it.remove("details")
+                VideoDiagnosticsWire.validate(it)
+            } }
                 catch (_: Exception) { pending = null; sent = false; result = Result.FAILED; return false }
             pending = json.toString(); requestedAt = clock(); sent = false; result = Result.SENDING
             return true
@@ -73,9 +80,9 @@ object VideoDiagnosticsTransfer {
             if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
         }
             .getOrDefault(1).coerceIn(1, VideoDiagnosticsWire.MAX_ORDINAL).toInt()
-        return session.send { VideoDiagnostics.snapshot(it, version) }
+        return session.send(details = { VideoDiagnostics.sender.snapshot() }) { VideoDiagnostics.snapshot(it, version) }
     }
-    internal fun connected(owner: Long, supported: Boolean) = session.connected(owner, supported)
+    internal fun connected(owner: Long, supported: Boolean, details: Boolean = false) = session.connected(owner, supported, details)
     internal fun disconnected(owner: Long) = session.disconnected(owner)
     internal fun next(owner: Long) = session.next(owner)
     internal fun expire(owner: Long) = session.expire(owner)

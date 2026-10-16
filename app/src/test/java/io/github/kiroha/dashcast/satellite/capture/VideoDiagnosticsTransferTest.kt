@@ -110,4 +110,39 @@ class VideoDiagnosticsTransferTest {
         assertTrue(payload.toString().toByteArray().size < 16384)
         assertEquals(86400000L, payload.getJSONArray("recent").getJSONObject(0).getLong("ageMs"))
     }
+    @Test fun `optional details require both exact capabilities and never leak across authenticated generations`() {
+        for (value in listOf(JSONObject.NULL,true,"1",1.0,0,2)) {
+            assertFalse(VideoDiagnosticsWire.detailsSupported(JSONObject().put("videoDiagnostics",1).put("videoDiagnosticsDetails",value)))
+        }
+        assertFalse(VideoDiagnosticsWire.detailsSupported(JSONObject().put("videoDiagnosticsDetails",1)))
+        assertTrue(VideoDiagnosticsWire.detailsSupported(JSONObject().put("videoDiagnostics",1).put("videoDiagnosticsDetails",1)))
+        val transfer=VideoDiagnosticsTransfer.Session { 0L }
+        val detail=fixtures().getJSONArray("accepted").getJSONObject(1).getJSONObject("details")
+        transfer.connected(1,true,false)
+        assertTrue(transfer.send(details={detail}) { message(it) });assertFalse(JSONObject(transfer.next(1)!!).has("details"))
+        transfer.connected(2,true,true)
+        assertTrue(transfer.send(details={detail}) { message(it) })
+        detail.getJSONArray("attempts").getJSONObject(0).put("framesEncoded",999)
+        assertEquals(30,JSONObject(transfer.next(2)!!).getJSONObject("details").getJSONArray("attempts").getJSONObject(0).getInt("framesEncoded"))
+        transfer.send(details={detail}) { message(it) };transfer.disconnected(2);transfer.connected(3,true)
+        assertNull(transfer.next(3));assertTrue(transfer.send(details={detail}) { message(it) })
+        assertFalse(JSONObject(transfer.next(3)!!).has("details"))
+    }
+
+    @Test fun `maximum typed history and base snapshot fit the whole UTF8 message budget`() {
+        var now=0L;val history=VideoSenderDiagnostics { now };val timeline=VideoDiagnostics.Timeline { now }
+        timeline.record(VideoDiagnostics.Event.SHARE_STARTED)
+        VideoDiagnostics.Event.entries.forEach { timeline.record(it,sharingSession=1) }
+        repeat(4) {
+            val attempt=history.begin(1)
+            history.sample(attempt,VideoSenderDiagnostics.counterNames.associateWith { 9_000_000_000_000L },"video/H264")
+            history.end(attempt)
+        }
+        now=86_400_000L
+        val message=timeline.snapshot(1,"capture_paused",true,14).put("details",history.snapshot())
+        VideoDiagnosticsWire.validate(message)
+        assertTrue(message.toString().toByteArray(Charsets.UTF_8).size<VideoDiagnosticsWire.MAX_BYTES)
+        assertEquals(4,message.getJSONObject("details").getJSONArray("attempts").length())
+    }
+
 }

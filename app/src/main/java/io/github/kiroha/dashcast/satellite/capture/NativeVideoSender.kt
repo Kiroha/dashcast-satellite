@@ -28,6 +28,7 @@ internal class NativeVideoSender(
     private var closed = false
     private var retries = 0
     private var frameWatchdog: EncodedFrameWatchdog? = null
+    private var diagnosticAttempt: Long? = null
     private var statsPending = false
     private var lastBytes = 0L
     private var lastStatsUs = 0.0
@@ -105,6 +106,7 @@ internal class NativeVideoSender(
         if (capture?.owns(captureEpoch) != true) return
         peerCaptureEpoch = captureEpoch
         val current = VideoNegotiation(UUID.randomUUID().toString()).also { attempt = it }
+        diagnosticAttempt = VideoDiagnostics.sender.begin(sharingSession)
         val config = PeerConnection.RTCConfiguration(emptyList()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
@@ -252,6 +254,7 @@ internal class NativeVideoSender(
                 VideoState.status = "streaming"
             }
             val codec = report.statsMap[values["codecId"]]?.members?.get("mimeType") as? String
+            VideoDiagnostics.sender.sample(diagnosticAttempt, values, codec)
             val bytes = (values["bytesSent"] as? Number)?.toLong() ?: 0L
             val time = report.timestampUs
             val kbps = if (lastStatsUs > 0 && time > lastStatsUs) ((bytes-lastBytes)*8000/(time-lastStatsUs)).toInt().coerceIn(0,100_000) else 0
@@ -264,6 +267,7 @@ internal class NativeVideoSender(
         } }
     }
     private fun disposePeer() {
+        VideoDiagnostics.sender.end(diagnosticAttempt); diagnosticAttempt = null
         attempt?.let { it.close(); link.endNegotiation(it.id) }; attempt = null
         peer?.let { runCatching { it.close() }; runCatching { it.dispose() } }; peer = null; peerCaptureEpoch = null
         statsPending = false; lastStatsUs = 0.0; lastBytes = 0L; frameWatchdog = null

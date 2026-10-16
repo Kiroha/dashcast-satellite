@@ -1,11 +1,11 @@
 {
   "repository": "https://github.com/Kiroha/byd-dashcast",
-  "commit": "c0baf947e9eb94ccca20670b7c9d08c9ce608386",
+  "commit": "9a330c867eafef6e5f6e74bf43cefe2497b70a94",
   "protocolVersion": 1,
   "files": {
-    "PROTOCOL_V1.md": "f6ac19200f969e529bdd16c5abb2b1b97e7e224d12197ebdcce5f21d0de7d304",
+    "PROTOCOL_V1.md": "882cbdb2c258ad56ccd88d476209aba7fbb7013571280e9d4ed7bf372feac9cf",
     "navigation-fixtures.json": "ccf14b618bfbbe09af7ddbc9f3d1d7e778f9c6102ca5b0932daab9fb027be2bc",
-    "diagnostics-video-schema.json": "98800a22d8d99ec44d744885e3d66f6fd7ac79cdbec332e2684f302086465d41",
-    "diagnostics-video-fixtures.json": "e25d14a055737ddf0e9794ff1e28a1fa71e94a8708759e11212ef0701da6732c"
+    "diagnostics-video-schema.json": "654ae10f4d4ecc7a1a94490453e5ae3367f0015089434e6594ba3053dd7b0417",
+    "diagnostics-video-fixtures.json": "b40dec1c94b8731bdb15166a5974c2cb81035bfc8623d9a300025c61ae407be7"
   }
 }

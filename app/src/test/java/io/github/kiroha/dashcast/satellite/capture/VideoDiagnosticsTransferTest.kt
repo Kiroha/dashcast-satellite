@@ -136,13 +136,37 @@ class VideoDiagnosticsTransferTest {
         repeat(4) {
             val attempt=history.begin(1)
             history.sample(attempt,VideoSenderDiagnostics.counterNames.associateWith { 9_000_000_000_000L },"video/H264")
+            repeat(4) { history.encoded(attempt, EncodedH264Diagnostics.Observation(0,true,8192,8192,"annex_b","complete",true,true,true,255,255,255)) }
             history.end(attempt)
         }
         now=86_400_000L
-        val message=timeline.snapshot(1,"capture_paused",true,14).put("details",history.snapshot())
+        val message=timeline.snapshot(1,"capture_paused",true,14).put("details",history.snapshot(true))
         VideoDiagnosticsWire.validate(message)
         assertTrue(message.toString().toByteArray(Charsets.UTF_8).size<VideoDiagnosticsWire.MAX_BYTES)
         assertEquals(4,message.getJSONObject("details").getJSONArray("attempts").length())
+    }
+
+    @Test fun `exact H264 opt in requires both old capabilities and reconnect restores byte compatible schema one`() {
+        for(value in listOf(JSONObject.NULL,true,false,"1",1.0,0,2)){
+            assertFalse(VideoDiagnosticsWire.h264Supported(JSONObject().put("videoDiagnostics",1).put("videoDiagnosticsDetails",1).put("videoDiagnosticsH264",value)))
+        }
+        assertFalse(VideoDiagnosticsWire.h264Supported(JSONObject().put("videoDiagnosticsH264",1)))
+        assertFalse(VideoDiagnosticsWire.h264Supported(JSONObject().put("videoDiagnostics",1).put("videoDiagnosticsH264",1)))
+        assertTrue(VideoDiagnosticsWire.h264Supported(JSONObject().put("videoDiagnostics",1L).put("videoDiagnosticsDetails",1L).put("videoDiagnosticsH264",1L)))
+        val transfer=VideoDiagnosticsTransfer.Session{0}
+        val old=fixtures().getJSONArray("accepted").getJSONObject(1).getJSONObject("details")
+        val current=JSONObject(old.toString()).put("schema",2)
+        val rows=current.getJSONArray("attempts");repeat(rows.length()){rows.getJSONObject(it).put("h264",org.json.JSONArray())}
+        transfer.connected(1,true,true,true)
+        assertTrue(transfer.send(details={old},h264Details={current}){message(it)})
+        assertEquals(2,JSONObject(transfer.next(1)!!).getJSONObject("details").getInt("schema"))
+        transfer.send(details={old},h264Details={current}){message(it)};transfer.disconnected(1);transfer.connected(2,true,true)
+        assertNull(transfer.next(1));assertNull(transfer.next(2))
+        assertTrue(transfer.send(details={old},h264Details={error("new details invoked for old receiver")}){message(it)})
+        assertEquals(old.toString(),JSONObject(transfer.next(2)!!).getJSONObject("details").toString())
+        transfer.connected(3,true,false,true)
+        assertTrue(transfer.send(details={error("details not opted in")},h264Details={error("H264 not opted in")}){message(it)})
+        assertFalse(JSONObject(transfer.next(3)!!).has("details"))
     }
 
 }

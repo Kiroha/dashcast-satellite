@@ -346,12 +346,13 @@ class SatelliteTransportTest {
 
 
     @Test fun `manual diagnostics use only an opted in pinned control socket and commit ack without a viewer`() {
-        for ((capability, details) in listOf<Pair<Any?,Any?>>(null to 1, true to 1, "1" to 1, 2 to 1, 1 to null, 1 to true, 1 to 1)) {
+        for ((capability, details, h264) in listOf<Triple<Any?,Any?,Any?>>(Triple(null,1,1),Triple(true,1,1),Triple("1",1,1),Triple(2,1,1),Triple(1,null,1),Triple(1,true,1),Triple(1,1,null),Triple(1,1,true),Triple(1,1,1))) {
             configureLan { Socket() }
             val connected = CountDownLatch(1); val stopped = CountDownLatch(1)
             val server = TestReceiver(true)
             server.diagnosticsCapability.set(capability)
             server.diagnosticsDetailsCapability.set(details)
+            server.diagnosticsH264Capability.set(h264)
             val transport = SatelliteTransport(app, {
                 if (it.state == TransportState.CONNECTED) connected.countDown()
                 if (it.state == TransportState.STOPPED) stopped.countDown()
@@ -366,6 +367,7 @@ class SatelliteTransportTest {
                     val snapshot = server.diagnostics.poll(3, TimeUnit.SECONDS)
                     assertNotNull(snapshot)
                     assertEquals(capability == 1 && details == 1, snapshot!!.has("details"))
+                    if (snapshot.has("details")) assertEquals(if (h264 == 1) 2 else 1,snapshot.getJSONObject("details").getInt("schema"))
                     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
                     while (VideoDiagnosticsTransfer.result == VideoDiagnosticsTransfer.Result.SENDING && System.nanoTime() < deadline) Thread.sleep(10)
                     assertEquals(VideoDiagnosticsTransfer.Result.RECEIVED, VideoDiagnosticsTransfer.result)
@@ -558,6 +560,7 @@ class SatelliteTransportTest {
         val navigation = LinkedBlockingQueue<JSONObject>()
         val diagnosticsCapability = AtomicReference<Any?>()
         val diagnosticsDetailsCapability = AtomicReference<Any?>()
+        val diagnosticsH264Capability = AtomicReference<Any?>()
         val diagnostics = LinkedBlockingQueue<JSONObject>()
         init {
             setWebSocketFactory(DefaultSSLWebSocketServerFactory(serverContext()))
@@ -578,6 +581,7 @@ class SatelliteTransportTest {
                     genericCapability.get()?.let { welcome.put("genericRoundabouts", it) }
                     diagnosticsCapability.get()?.let { welcome.put("videoDiagnostics", it) }
                     diagnosticsDetailsCapability.get()?.let { welcome.put("videoDiagnosticsDetails", it) }
+                    diagnosticsH264Capability.get()?.let { welcome.put("videoDiagnosticsH264", it) }
                     connection.send(welcome.toString())
                 }
             } else if (JSONObject(message).getString("type") == "diagnostics.video") {

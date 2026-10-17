@@ -312,7 +312,7 @@ class SatelliteTransport internal constructor(
                 require(json.get("videoTransport") == "webrtc")
                 authenticated = true
                 controlGeneration = VIDEO_GENERATIONS.incrementAndGet()
-                VideoDiagnosticsTransfer.connected(controlGeneration, VideoDiagnosticsWire.supported(json), VideoDiagnosticsWire.detailsSupported(json))
+                VideoDiagnosticsTransfer.connected(controlGeneration, VideoDiagnosticsWire.supported(json), VideoDiagnosticsWire.detailsSupported(json), VideoDiagnosticsWire.h264Supported(json))
                 remoteGuidance = json.getBoolean("remoteGuidance")
                 genericRoundabouts = NavigationWire.supportsGenericRoundabouts(json)
                 connectedAt = now

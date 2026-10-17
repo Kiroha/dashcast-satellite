@@ -243,3 +243,26 @@ The same projection/display/texture helper supplies per-attempt sources; no extr
 periodic resync loop is introduced. JVM and static checks do not establish that Tbox hardware honors
 a sync request, that WebView decodes an image, or that the vehicle saves CPU/GPU. Those remain
 physical validation gates using the existing manual sender/receiver diagnostics.
+
+
+## 0.9.6-dev actual encoded H264 diagnostics
+
+264 tests across 42 suites passed with zero failures, errors or skips. Debug lint reports zero
+issues and debug assembly passes. A preceding fresh focused run reran all 30 tasks, including
+actual pinned TLS transport capability tests. Protocol v1 and six accepted/61 rejected diagnostic
+fixtures are pinned byte-for-byte to reviewed receiver commit
+`b187fa12fe700af0ef3490e32925eb81559cfb6c`; pairing/navigation fixtures and the pinned WebRTC
+archive are unchanged.
+
+The checks cover direct read-only buffer window/mark/content preservation, actual header scalar
+extraction and unknown/truncated/forbidden/reserved/short/empty NAL cases, leading/trailing zero
+padding, callback/count/time/byte budgets, synchronous init output, native callback identity and
+exception delivery, failed init/reinit/retirement fencing (including retirement during final
+publication eligibility), historical scalar copies, independent observation/sample ages, exact
+capability downgrade/reconnect behavior and the full maximum-size schema-2 manual snapshot.
+The collector does not hold policy/history locks while parsing; JSON is built after copying the
+bounded history under its monitor. Encoder/codec/capture/receiver behavior is otherwise unchanged.
+
+These are source/JVM/static checks. Real Tbox encoder bytes, the vehicle's first decoded image,
+latency, thermal behavior and CPU/GPU savings require parked-device validation. Final APK metadata,
+signing and independent checks are recorded with the frozen release artifacts.

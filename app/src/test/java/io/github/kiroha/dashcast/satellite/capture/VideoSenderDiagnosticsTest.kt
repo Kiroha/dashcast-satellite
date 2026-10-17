@@ -38,4 +38,19 @@ class VideoSenderDiagnosticsTest {
         assertEquals(2,row.getInt("framesEncoded"));assertTrue(row.isNull("keyFramesEncoded"));assertTrue(row.isNull("codec"))
         assertTrue(row.isNull("firCount"))
     }
+    @Test fun `encoded observation ages are independent of stats age frozen manually and reject stale row updates`() {
+        var now=100L;val history=VideoSenderDiagnostics{now};val old=history.begin(1)
+        fun observation(at:Long)=EncodedH264Diagnostics.Observation(at,true,960,540,"annex_b","complete",true,true,true,66,224,31)
+        now=200;history.encoded(old,observation(now));now=1000
+        val frozen=history.snapshot(true);var row=frozen.getJSONArray("attempts").getJSONObject(0)
+        assertTrue(row.isNull("sampleAgeMs"));assertEquals(800,row.getJSONArray("h264").getJSONObject(0).getInt("ageMs"))
+        history.sample(old,mapOf("framesEncoded" to 5),"video/H264");history.end(old)
+        history.encoded(old,observation(now));now=1200;val current=history.begin(2)
+        history.encoded(old,observation(now));history.encoded(current,observation(now))
+        row=history.snapshot(true).getJSONArray("attempts").getJSONObject(1)
+        assertEquals(200,row.getInt("sampleAgeMs"));assertEquals(1000,row.getJSONArray("h264").getJSONObject(0).getInt("ageMs"))
+        assertEquals(1,row.getJSONArray("h264").length());assertEquals(800,frozen.getJSONArray("attempts").getJSONObject(0).getJSONArray("h264").getJSONObject(0).getInt("ageMs"))
+        val legacy=history.snapshot();assertEquals(1,legacy.getInt("schema"));assertFalse(legacy.getJSONArray("attempts").getJSONObject(0).has("h264"))
+    }
+
 }

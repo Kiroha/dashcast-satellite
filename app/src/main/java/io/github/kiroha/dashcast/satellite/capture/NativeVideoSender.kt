@@ -21,6 +21,7 @@ internal class NativeVideoSender(
     private var factory: PeerConnectionFactory? = null
     private val sourceRelay = CaptureObserverRelay()
     private var startup: StartupKeyframePolicy? = null
+    private var encodedDiagnostics: EncodedH264Diagnostics? = null
     private var peerResources: PeerVideoResources? = null
     private var source: VideoSource? = null
     private var track: VideoTrack? = null
@@ -109,7 +110,11 @@ internal class NativeVideoSender(
             recoveryActive() && captureOwner.owns(captureEpoch) &&
                 link.ownsViewer(viewerEpoch) && VideoControlBridge.link === link
         }).also { startup = it }
-        val resources = PeerVideoResources(ticket::close, { onTextureThread { sourceRelay.unbind() } })
+        // Allocate the immutable row before factory injection: initEncode may emit synchronously.
+        val diagnosticOwner = VideoDiagnostics.sender.begin(sharingSession).also { diagnosticAttempt = it }
+        val diagnostics = EncodedH264Diagnostics(ticket::ownsSource,
+            { VideoDiagnostics.sender.encoded(diagnosticOwner, it) }).also { encodedDiagnostics = it }
+        val resources = PeerVideoResources({ diagnostics.close(); ticket.close() }, { onTextureThread { sourceRelay.unbind() } })
             .also { peerResources = it }
         val options = PeerConnectionFactory.Options().apply {
             networkIgnoreMask = PeerConnectionFactory.Options.ADAPTER_TYPE_CELLULAR or PeerConnectionFactory.Options.ADAPTER_TYPE_VPN or
@@ -118,7 +123,7 @@ internal class NativeVideoSender(
         // No mutable-current lookup: this factory, source, track and ticket belong to one attempt.
         val hardware = HardwareVideoEncoderFactory(checkNotNull(egl).eglBaseContext, false, false)
         factory = resources.own(PeerConnectionFactory.builder().setOptions(options)
-            .setVideoEncoderFactory(StartupKeyframeEncoderFactory(hardware, ticket))
+            .setVideoEncoderFactory(StartupKeyframeEncoderFactory(hardware, ticket, diagnostics))
             .setVideoDecoderFactory(SoftwareVideoDecoderFactory()).createPeerConnectionFactory()) { it.dispose() }
         val peerSource = resources.own(factory!!.createVideoSource(true)) { it.dispose() }.also { source = it }
         track = resources.own(factory!!.createVideoTrack("dashsat-video", peerSource)) { it.dispose() }
@@ -127,7 +132,6 @@ internal class NativeVideoSender(
                 { w, h -> peerSource.adaptOutputFormat(w, h, VideoPolicy.FPS) }, ticket::ownsSource)
         }
         val current = VideoNegotiation(UUID.randomUUID().toString()).also { attempt = it }
-        diagnosticAttempt = VideoDiagnostics.sender.begin(sharingSession)
         val config = PeerConnection.RTCConfiguration(emptyList()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
@@ -294,6 +298,7 @@ internal class NativeVideoSender(
     }
     private fun disposePeer() {
         // Revoke recovery first, drain texture forwarding, then release every per-peer native owner.
+        encodedDiagnostics?.close(); encodedDiagnostics = null
         startup?.close(); startup = null
         VideoDiagnostics.sender.end(diagnosticAttempt); diagnosticAttempt = null
         attempt?.let { it.close(); runCatching { link.endNegotiation(it.id) } }; attempt = null

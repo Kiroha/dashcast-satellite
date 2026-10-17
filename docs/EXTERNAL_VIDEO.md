@@ -193,7 +193,7 @@ arriving without a decoded first frame in the earlier short vehicle attempt.
 
 ### First-frame diagnostics
 
-The manual **Send video diagnostics to DashCast** action retains the latest original stats sample
+The manual **Send diagnostics to DashCast** action retains the latest original stats sample
 from up to four local sender attempts, including attempts already closed when switching screens.
 With a receiver advertising both diagnostics capabilities, the existing snapshot includes nullable
 encoded/keyframe counts, bytes/packets and received PLI/NACK/FIR feedback. Older receivers receive
@@ -214,6 +214,27 @@ The same Android-authorized MediaProjection/VirtualDisplay/EGL helper supplies r
 Source visibility and viewer epochs fence old callbacks immediately, including false-true transitions
 before worker cleanup drains. Keyframe requests never refresh encoded-frame or receiver-image liveness.
 
-Use **Send video diagnostics to DashCast** after an attempt and report the actual `keyFramesEncoded`
+Use **Send diagnostics to DashCast** after an attempt and report the actual `keyFramesEncoded`
 plus receiver decoded-frame observations. The hardware may decline a request; successful encoding or
 extra keyframes do not establish decoder compatibility, a displayed image or CPU/GPU savings.
+
+
+### Actual encoded H264 header evidence
+
+With DashCast 1.9.41-beta or later advertising exact `videoDiagnosticsH264:1` alongside the two
+older capabilities, the manual transfer uses details schema 2. The first hardware H264 output and
+up to three later declared key outputs carry scalar header observations, each with its own original
+age independently of RTC statistics. A strict per-attempt limit covers callbacks (180), elapsed
+window (12 seconds), total inspected bytes (256 KiB) and bytes per selected output (96 KiB).
+There is no new timer or steady inspection once the budget is finished.
+
+SPS/PPS/IDR presence is unknown for unsupported framing or incomplete evidence. Only the first
+recognized SPS's three fixed header bytes are reported; this is not a validated SPS or an
+association with an IDR. The width/height fields are SDK EncodedImage metadata, not parsed SPS
+dimensions. Inspection never retains, copies or modifies a media buffer or exports payload bytes.
+Native callback delivery, codec preferences and finite startup keyframe recovery are preserved.
+
+For a parked-device test, update both apps, start sharing and keep the DashCast viewer visible for
+at least 20 seconds. Return to DashSat, select **Send diagnostics to DashCast**, wait for the
+received confirmation, then create the DashCast bug report. Existing pairing remains valid.
+An updated diagnostic report does not itself confirm a decoded image or reduced CPU/GPU load.

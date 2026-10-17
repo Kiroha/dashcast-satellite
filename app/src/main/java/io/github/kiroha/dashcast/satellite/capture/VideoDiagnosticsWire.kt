@@ -19,6 +19,9 @@ internal object VideoDiagnosticsWire {
     fun detailsSupported(welcome: JSONObject): Boolean = supported(welcome) && welcome.opt("videoDiagnosticsDetails").let {
         (it is Int || it is Long) && (it as Number).toLong() == 1L
     }
+    fun h264Supported(welcome: JSONObject): Boolean = detailsSupported(welcome) && welcome.opt("videoDiagnosticsH264").let {
+        (it is Int || it is Long) && (it as Number).toLong() == 1L
+    }
     fun validate(json: JSONObject) {
         require(json.toString().toByteArray(Charsets.UTF_8).size <= MAX_BYTES)
         keys(json, setOf("type", "schema", "request", "snapshotAgeMs", "appVersionCode", "state", "captureBusy", "share", "counts", "recent") + if (json.has("details")) setOf("details") else emptySet())
@@ -49,15 +52,15 @@ internal object VideoDiagnosticsWire {
     private val senderCounters = listOf("bytesSent", "packetsSent", "framesEncoded", "keyFramesEncoded", "pliCount", "nackCount", "firCount")
     private fun validateDetails(json: JSONObject, share: Long) {
         keys(json, setOf("schema", "attempts"))
-        NavigationWire.integer(json, "schema", 1, 1)
+        val schema = NavigationWire.integer(json, "schema", 1, 2)
         val rows = json.getJSONArray("attempts"); require(rows.length() <= 4)
         var previousAttempt = MAX_ORDINAL + 1
         (0 until rows.length()).forEach { index ->
             val row = rows.getJSONObject(index)
-            keys(row, setOf("attempt", "share", "ageMs", "sampleAgeMs", "ended", "codec") + senderCounters)
+            keys(row, setOf("attempt", "share", "ageMs", "sampleAgeMs", "ended", "codec") + senderCounters + if (schema == 2L) setOf("h264") else emptySet())
             val attempt = NavigationWire.integer(row, "attempt", 1, previousAttempt - 1)
             previousAttempt = attempt
-            val session = NavigationWire.integer(row, "share", 0, share)
+            NavigationWire.integer(row, "share", 0, share)
             val age = NavigationWire.integer(row, "ageMs", 0, MAX_AGE_MS)
             fun nullable(key: String, max: Long): Long? = if (row.get(key) === JSONObject.NULL) null else NavigationWire.integer(row, key, 0, max)
             val sampleAge = nullable("sampleAgeMs", age)
@@ -67,7 +70,30 @@ internal object VideoDiagnosticsWire {
             val frames = counters["framesEncoded"]; val keys = counters["keyFramesEncoded"]
             require(frames == null || keys == null || keys <= frames)
             require(sampleAge != null || (codec === JSONObject.NULL && counters.values.all { it == null }))
+            if (schema == 2L) validateH264(row.getJSONArray("h264"), age)
 
+        }
+    }
+    private fun validateH264(rows: org.json.JSONArray, age: Long) {
+        require(rows.length() <= 4)
+        var previousAge = age
+        repeat(rows.length()) { index ->
+            val row = rows.getJSONObject(index)
+            keys(row, setOf("ageMs", "declaredKey", "width", "height", "framing", "inspection", "sps", "pps", "idr", "profileIdc", "constraintFlags", "levelIdc"))
+            previousAge = NavigationWire.integer(row, "ageMs", 0, previousAge)
+            require(row.get("declaredKey") is Boolean)
+            if (index > 0) require(row.get("declaredKey") == true)
+            fun number(key: String, max: Long): Long? = if (row.get(key) === JSONObject.NULL) null else NavigationWire.integer(row, key, 0, max)
+            listOf("width", "height").forEach { require(number(it, 8192)?.let { n -> n > 0 } != false) }
+            val framing = row.get("framing"); val inspection = row.get("inspection")
+            require(framing in setOf("annex_b", "unknown") && inspection in setOf("complete", "truncated"))
+            listOf("sps", "pps", "idr").forEach { key ->
+                val value = row.get(key); require(value === JSONObject.NULL || value is Boolean)
+                require(framing != "unknown" || value === JSONObject.NULL)
+                require(value != false || inspection == "complete")
+            }
+            val metadata = listOf("profileIdc", "constraintFlags", "levelIdc").map { number(it, 255) }
+            require(metadata.all { it == null } || (metadata.all { it != null } && row.get("sps") == true))
         }
     }
     private fun keys(json: JSONObject, expected: Set<String>) { require(json.keys().asSequence().toSet() == expected) }

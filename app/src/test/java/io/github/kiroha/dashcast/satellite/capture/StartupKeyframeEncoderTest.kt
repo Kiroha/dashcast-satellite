@@ -19,10 +19,11 @@ class StartupKeyframeEncoderTest {
         var settings:VideoEncoder.Settings?=null;var callback:VideoEncoder.Callback?=null
         var allocation:VideoEncoder.BitrateAllocation?=null;var rates:VideoEncoder.RateControlParameters?=null
         var nativeEnvironment=0L;var releases=0
+        var initStatus=VideoCodecStatus.OK;var duringInit:(VideoEncoder.Callback)->Unit={}
         val scaling=VideoEncoder.ScalingSettings.OFF
         val limits=arrayOf(VideoEncoder.ResolutionBitrateLimits(256,100,50,200))
         val metadata=VideoEncoder.EncoderInfo(16,true)
-        override fun initEncode(s:VideoEncoder.Settings,c:VideoEncoder.Callback):VideoCodecStatus {settings=s;callback=c;return VideoCodecStatus.OK}
+        override fun initEncode(s:VideoEncoder.Settings,c:VideoEncoder.Callback):VideoCodecStatus {settings=s;callback=c;duringInit(c);return initStatus}
         override fun encode(f:VideoFrame,i:VideoEncoder.EncodeInfo):VideoCodecStatus {frame=f;info=i;return VideoCodecStatus.NO_OUTPUT}
         override fun release():VideoCodecStatus {releases++;return VideoCodecStatus.OK}
         override fun createNative(env:Long):Long {nativeEnvironment=env;return 123}
@@ -114,6 +115,41 @@ class StartupKeyframeEncoderTest {
         },ticket)
         assertNull(factory.createEncoder(VideoCodecInfo("H264",emptyMap(),emptyList())))
         assertEquals(1,delegate.releases)
+    }
+
+    private fun output()=EncodedImage.builder().setBuffer(java.nio.ByteBuffer.allocateDirect(5).apply { put(byteArrayOf(0,0,1,0x65,0x80.toByte()));flip() }){}
+        .setFrameType(EncodedImage.FrameType.VideoFrameKey).setEncodedWidth(960).setEncodedHeight(540).setCaptureTimeNs(1).createEncodedImage()
+    @Test fun `synchronous init output is observed before SDK status and exact image and info are forwarded`() {
+        val rows=mutableListOf<EncodedH264Diagnostics.Observation>();val diagnostics=EncodedH264Diagnostics({true},rows::add){0}
+        val delegate=Encoder();val image=output();val info=VideoEncoder.CodecSpecificInfo();var delivered=0
+        delegate.duringInit={it.onEncodedFrame(image,info)}
+        val encoder=StartupKeyframeEncoder(delegate,StartupKeyframePolicy({true}){0},diagnostics)
+        encoder.initEncode(settings,VideoEncoder.Callback { value,metadata -> assertSame(image,value);assertSame(info,metadata);delivered++ })
+        assertEquals(1,delivered);assertEquals(1,rows.size);assertEquals(true,rows[0].idr)
+        assertEquals(0,image.buffer.position());assertEquals(5,image.buffer.limit())
+    }
+    @Test fun `diagnostic exceptions cannot suppress delivery while downstream callback exception propagates unchanged`() {
+        val expected=IllegalStateException("downstream")
+        val probe=EncodedH264Diagnostics({true},{throw IllegalArgumentException("optional probe")}){0}
+        val delegate=Encoder();val encoder=StartupKeyframeEncoder(delegate,StartupKeyframePolicy({true}){0},probe)
+        encoder.initEncode(settings,VideoEncoder.Callback { _,_->throw expected })
+        try{delegate.callback!!.onEncodedFrame(output(),null);fail("downstream exception swallowed")}catch(error:IllegalStateException){assertSame(expected,error)}
+    }
+    @Test fun `reinitialization failed initialization and release fence diagnostic callbacks but still forward SDK output`() {
+        for(mode in 0..3){
+            val rows=mutableListOf<EncodedH264Diagnostics.Observation>();val probe=EncodedH264Diagnostics({true},rows::add){0}
+            val delegate=Encoder();var delivered=0
+            val encoder=StartupKeyframeEncoder(delegate,StartupKeyframePolicy({true}){0},probe)
+            val callback=VideoEncoder.Callback{_,_->delivered++}
+            when(mode){1->delegate.initStatus=VideoCodecStatus.ERROR;2->delegate.duringInit={throw IllegalStateException("init")}}
+            try{encoder.initEncode(settings,callback)}catch(_:IllegalStateException){}
+            val late=delegate.callback!!
+            when(mode){0->encoder.release();3->encoder.initEncode(settings,callback)}
+            late.onEncodedFrame(output(),null);assertEquals(1,delivered);assertTrue(rows.isEmpty())
+            val replacement=StartupKeyframeEncoder(Encoder(),StartupKeyframePolicy({true}){0},probe)
+            replacement.initEncode(settings,callback)
+            assertTrue(rows.isEmpty())
+        }
     }
 
 }

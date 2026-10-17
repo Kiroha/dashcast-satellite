@@ -298,3 +298,26 @@ existing safe wire-state fallback. Independent source/artifact checks are record
 publication. Static/JVM checks do not
 establish that the Tbox honors the profile, that the vehicle decodes an image or that CPU/GPU usage
 is lower. A parked-device trial with actual SPS and decoded-image observations remains required.
+
+## Synthetic reference compatibility test — October 17, 2026
+
+DashSat 0.9.8-dev (code 18), paired with DashCast 1.9.44-beta (code 683), adds a diagnostic comparison,
+not a proven correction of the vehicle's black video. Owner checks passed: 298 JVM tests across 46
+suites, zero failures/errors/skips, lint with zero issues, and debug assembly. Receiver targeted
+checks passed 36 JVM tests and 39 bundled-page Node tests. Independent artifact/runtime verification
+is recorded separately by the release process; these owner checks do not establish real decoding.
+
+The regression cases exercise the actual reference encoder callback and buffer retain/release,
+fixed H.264 profile/level refusal, original timestamp consumption, rate/output limits, final-generation
+retirement and deadline expiry, callback exceptions, source hide/resume epochs, immutable attempt
+mode, exact capability negotiation and legacy omission, service expiry with no viewer/frames,
+notification cleanup, UI exclusivity and fresh Android consent. Strict shared diagnostics fixtures
+cover schema 3 and malformed/unknown modes. Initial test-harness failures (queued AlertDialog callback
+and expecting a reply before an invalid offer had an owner) were corrected without weakening the
+production assertions: the real consent handler and rejected-offer peer/label state are checked.
+
+Fixture generation independently decodes both synthetic access units using PyAV 16.1.0 and checks
+960×452, Constrained Baseline 3.1, distinct images, exactly SPS/PPS/SEI/one IDR and IDR size >1200.
+Single-thread libx264 avoids host-dependent sliced-thread output. The stock Android 10 emulator's
+WebView 74 does not advertise H.264; it cannot establish reference-stream decoder compatibility.
+Actual reference rendering, real application video and CPU/GPU improvements still require the vehicle.

@@ -35,6 +35,14 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
     private var owner: VideoLink? = null
     @Volatile private var ending = false
     private var started = false
+    private var reference: ReferenceSession? = null
+    private val referenceDeadline = Runnable { finishCapture("reference_complete") }
+    private fun scheduleReferenceDeadline() {
+        if (ending) return
+        val remaining = reference?.remaining() ?: return
+        main.removeCallbacks(referenceDeadline)
+        if (remaining <= 0) finishCapture("reference_complete") else main.postDelayed(referenceDeadline, remaining)
+    }
     private var screenReceiverRegistered = false
     // Instance-local seams exercise the real service lifecycle without loading native codecs in JVM tests.
     internal var createProjection: (Intent) -> MediaProjection = { consent ->
@@ -43,7 +51,8 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
     }
     internal var createEngine: (Context, VideoLink, (() -> Unit) -> Unit, (String) -> Unit, () -> Unit) -> VideoCaptureEngine =
         { context, link, post, failed, changed -> NativeVideoSender(context, link, post, failed,
-            active = { !ending && canCapture() }, stateChanged = changed, recoveryActive = { !ending }) }
+            active = { !ending && canCapture() }, stateChanged = changed, recoveryActive = { !ending && (reference?.remaining()?.let { it > 0 } != false) },
+            reference = reference, referenceStarted = ::scheduleReferenceDeadline) }
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() { finishCapture("capture_revoked") }
     }
@@ -84,6 +93,15 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
                 finishCapture("control_unavailable"); return START_NOT_STICKY
             }
             owner = link
+            VideoState.reference = intent.getBooleanExtra(REFERENCE, false)
+            if (VideoState.reference) {
+                if (!link.referenceSupported) { finishCapture("control_unavailable"); return START_NOT_STICKY }
+                val acceptedAt = intent.getLongExtra(CONSENT_AT, -1)
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (acceptedAt !in maxOf(0, now - 60_000)..now) { finishCapture("reference_complete"); return START_NOT_STICKY }
+                reference = ReferenceSession(acceptedAt)
+                scheduleReferenceDeadline()
+            }
             VideoState.status = "starting"; VideoState.metrics = ""
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenReceiver,
                 IntentFilter(Intent.ACTION_SCREEN_OFF), RECEIVER_NOT_EXPORTED)
@@ -137,7 +155,7 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
     }
     private fun updateNotification() {
         if (ending) return
-        val text = when (VideoState.status) {
+        val text = if (reference != null) R.string.video_reference_notification else when (VideoState.status) {
             "waiting_viewer" -> R.string.video_notification_waiting
             "capture_paused" -> R.string.video_notification_source_paused
             "streaming" -> R.string.video_notification
@@ -216,6 +234,8 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
         const val START = "io.github.kiroha.dashcast.satellite.VIDEO_START"
         const val STOP = "io.github.kiroha.dashcast.satellite.VIDEO_STOP"
         const val CONSENT = "capture_consent"
+        const val REFERENCE = "capture_reference"
+        const val CONSENT_AT = "capture_consent_at"
         const val GENERATION = "capture_link_generation"
         private const val CHANNEL = "satellite_video"
     }

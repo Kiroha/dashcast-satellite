@@ -312,7 +312,7 @@ class SatelliteTransport internal constructor(
                 require(json.get("videoTransport") == "webrtc")
                 authenticated = true
                 controlGeneration = VIDEO_GENERATIONS.incrementAndGet()
-                VideoDiagnosticsTransfer.connected(controlGeneration, VideoDiagnosticsWire.supported(json), VideoDiagnosticsWire.detailsSupported(json), VideoDiagnosticsWire.h264Supported(json))
+                VideoDiagnosticsTransfer.connected(controlGeneration, VideoDiagnosticsWire.supported(json), VideoDiagnosticsWire.detailsSupported(json), VideoDiagnosticsWire.h264Supported(json), VideoDiagnosticsWire.referenceSupported(json))
                 remoteGuidance = json.getBoolean("remoteGuidance")
                 genericRoundabouts = NavigationWire.supportsGenericRoundabouts(json)
                 connectedAt = now
@@ -331,7 +331,7 @@ class SatelliteTransport internal constructor(
                     require(remote != null && PairingProfile.numericLocalIpv4Address(remote) != null)
                     val generation = controlGeneration
                     val link = VideoLink(generation, VideoLan(selected, name, addresses,
-                        connectivity.getNetworkCapabilities(selected)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true, remote), terminate = { negotiation ->
+                        connectivity.getNetworkCapabilities(selected)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true, remote), referenceSupported = VideoDiagnosticsWire.referenceSupported(json), terminate = { negotiation ->
                         dispatch {
                             if (authenticated && socket === ownerSocket && videoLink?.generation == generation) {
                                 videoQueue.cancel(negotiation)

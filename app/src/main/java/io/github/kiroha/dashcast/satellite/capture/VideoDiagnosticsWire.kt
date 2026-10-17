@@ -22,6 +22,9 @@ internal object VideoDiagnosticsWire {
     fun h264Supported(welcome: JSONObject): Boolean = detailsSupported(welcome) && welcome.opt("videoDiagnosticsH264").let {
         (it is Int || it is Long) && (it as Number).toLong() == 1L
     }
+    fun referenceSupported(welcome: JSONObject): Boolean = h264Supported(welcome) && welcome.opt("videoReferenceTest").let {
+        (it is Int || it is Long) && (it as Number).toLong() == 1L
+    }
     fun validate(json: JSONObject) {
         require(json.toString().toByteArray(Charsets.UTF_8).size <= MAX_BYTES)
         keys(json, setOf("type", "schema", "request", "snapshotAgeMs", "appVersionCode", "state", "captureBusy", "share", "counts", "recent") + if (json.has("details")) setOf("details") else emptySet())
@@ -52,12 +55,12 @@ internal object VideoDiagnosticsWire {
     private val senderCounters = listOf("bytesSent", "packetsSent", "framesEncoded", "keyFramesEncoded", "pliCount", "nackCount", "firCount")
     private fun validateDetails(json: JSONObject, share: Long) {
         keys(json, setOf("schema", "attempts"))
-        val schema = NavigationWire.integer(json, "schema", 1, 2)
+        val schema = NavigationWire.integer(json, "schema", 1, 3)
         val rows = json.getJSONArray("attempts"); require(rows.length() <= 4)
         var previousAttempt = MAX_ORDINAL + 1
         (0 until rows.length()).forEach { index ->
             val row = rows.getJSONObject(index)
-            keys(row, setOf("attempt", "share", "ageMs", "sampleAgeMs", "ended", "codec") + senderCounters + if (schema == 2L) setOf("h264") else emptySet())
+            keys(row, setOf("attempt", "share", "ageMs", "sampleAgeMs", "ended", "codec") + senderCounters + (if (schema >= 2L) setOf("h264") else emptySet()) + (if (schema == 3L) setOf("sourceMode") else emptySet()))
             val attempt = NavigationWire.integer(row, "attempt", 1, previousAttempt - 1)
             previousAttempt = attempt
             NavigationWire.integer(row, "share", 0, share)
@@ -70,7 +73,8 @@ internal object VideoDiagnosticsWire {
             val frames = counters["framesEncoded"]; val keys = counters["keyFramesEncoded"]
             require(frames == null || keys == null || keys <= frames)
             require(sampleAge != null || (codec === JSONObject.NULL && counters.values.all { it == null }))
-            if (schema == 2L) validateH264(row.getJSONArray("h264"), age)
+            if (schema == 3L) require(row.get("sourceMode") in setOf("capture", "reference"))
+            if (schema >= 2L) validateH264(row.getJSONArray("h264"), age)
 
         }
     }

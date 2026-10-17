@@ -15,7 +15,10 @@ internal class NativeVideoSender(
     private val active: () -> Boolean = { true },
     private val stateChanged: () -> Unit = {},
     private val recoveryActive: () -> Boolean = { true },
+    private val reference: ReferenceSession? = null,
+    private val referenceStarted: () -> Unit = {},
 ) : VideoCaptureEngine {
+    private var referenceAssets: ReferenceAssets? = null
     private var egl: EglBase? = null
     private var helper: SurfaceTextureHelper? = null
     private var factory: PeerConnectionFactory? = null
@@ -60,6 +63,7 @@ internal class NativeVideoSender(
         isReady = { !closed && active() && link.viewerReady && VideoControlBridge.link === link && capture?.available != false },
     )
     override fun start(projection: MediaProjection, width: Int, height: Int, density: Int) {
+        if (reference != null) referenceAssets = ReferenceAssets.load(context.assets)
         this.projection = projection
         this.width = width; this.height = height; this.density = density
         // No native factory, texture, encoder, ICE or VD until the first visible viewer.
@@ -75,15 +79,16 @@ internal class NativeVideoSender(
         initializeNative(context)
         NetworkMonitor.getInstance().setNetworkChangeDetectorFactory(LanNetworkDetector.factory(link.lan))
         val base = EglBase.create().also { egl = it }
-        val encoder = HardwareVideoEncoderFactory(base.eglBaseContext, false, false)
+        val encoder = if (reference == null) HardwareVideoEncoderFactory(base.eglBaseContext, false, false) else null
         VideoDiagnostics.record(VideoDiagnostics.Event.ENCODER_CHECK)
-        if (encoder.supportedCodecs.isEmpty()) {
+        if (encoder?.supportedCodecs?.isEmpty() == true) {
             VideoDiagnostics.record(VideoDiagnostics.Event.HARDWARE_UNAVAILABLE)
             error("hardware_encoder_unavailable")
         }
         VideoDiagnostics.record(VideoDiagnostics.Event.TEXTURE_INITIALIZING)
         helper = SurfaceTextureHelper.create("dashsat-texture", base.eglBaseContext) ?: error("texture_unavailable")
         capture = ProjectionTextureCapturer(projection, helper!!, sourceRelay, density,
+            freshOnly = reference != null,
             stopped = { code -> post { if (!closed) failed(code) } },
             resized = sourceRelay::resized,
             availabilityChanged = { ready -> post {
@@ -117,7 +122,7 @@ internal class NativeVideoSender(
         }
         val profileUnsupported = profileFailure::report
         // Allocate the immutable row before factory injection: initEncode may emit synchronously.
-        val diagnosticOwner = VideoDiagnostics.sender.begin(sharingSession).also { diagnosticAttempt = it }
+        val diagnosticOwner = VideoDiagnostics.sender.begin(sharingSession, reference != null).also { diagnosticAttempt = it }
         val diagnostics = EncodedH264Diagnostics(ticket::ownsSource,
             { VideoDiagnostics.sender.encoded(diagnosticOwner, it) }).also { encodedDiagnostics = it }
         val resources = PeerVideoResources({ diagnostics.close(); ticket.close() }, { onTextureThread { sourceRelay.unbind() } })
@@ -127,7 +132,10 @@ internal class NativeVideoSender(
                 PeerConnectionFactory.Options.ADAPTER_TYPE_LOOPBACK or PeerConnectionFactory.Options.ADAPTER_TYPE_UNKNOWN
         }
         // No mutable-current lookup: this factory, source, track and ticket belong to one attempt.
-        val hardware = ExplicitBaselineHardwareEncoderFactory(checkNotNull(egl).eglBaseContext, profileUnsupported)
+        if (reference != null) { reference.mediaStarted(); referenceStarted() }
+        val hardware: VideoEncoderFactory = if (reference != null)
+            ReferenceEncoderFactory(checkNotNull(referenceAssets), reference, ticket::ownsSource)
+        else ExplicitBaselineHardwareEncoderFactory(checkNotNull(egl).eglBaseContext, profileUnsupported)
         factory = resources.own(PeerConnectionFactory.builder().setOptions(options)
             .setVideoEncoderFactory(StartupKeyframeEncoderFactory(hardware, ticket, diagnostics, profileUnsupported))
             .setVideoDecoderFactory(SoftwareVideoDecoderFactory()).createPeerConnectionFactory()) { it.dispose() }
@@ -135,7 +143,8 @@ internal class NativeVideoSender(
         track = resources.own(factory!!.createVideoTrack("dashsat-video", peerSource)) { it.dispose() }
         onTextureThread {
             sourceRelay.bind(peerSource.capturerObserver,
-                { w, h -> peerSource.adaptOutputFormat(w, h, VideoPolicy.FPS) }, ticket::ownsSource)
+                { w, h -> peerSource.adaptOutputFormat(if (reference != null) ReferenceAssets.WIDTH else w,
+                    if (reference != null) ReferenceAssets.HEIGHT else h, if (reference != null) 5 else VideoPolicy.FPS) }, ticket::ownsSource)
         }
         val config = PeerConnection.RTCConfiguration(emptyList()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -196,7 +205,9 @@ internal class NativeVideoSender(
                 val completion = VideoSendCompletion(VideoDiagnostics.Event.OFFER_SENT, sharingSession, post,
                     owns = { owns(current) }, sent = { current.offerSent { send(it, current) } },
                     failed = { failed("control_unavailable") })
-                link.send(JSONObject().put("type", "video.offer").put("negotiation", current.id).put("sdp", sdp),
+                val offer = JSONObject().put("type", "video.offer").put("negotiation", current.id).put("sdp", sdp)
+                if (reference != null) offer.put("sourceMode", "reference")
+                link.send(offer,
                     completion::complete)
             }), description)
         }), MediaConstraints())
@@ -294,7 +305,7 @@ internal class NativeVideoSender(
             val width = (values["frameWidth"] as? Number)?.toInt()?.coerceIn(0,8192) ?: 0
             val height = (values["frameHeight"] as? Number)?.toInt()?.coerceIn(0,8192) ?: 0
             val fps = (values["framesPerSecond"] as? Number)?.toInt()?.coerceIn(0,120) ?: 0
-            VideoState.metrics = "$label · ${width}×${height} · $fps fps · $kbps kbps · hardware encoder"
+            VideoState.metrics = "$label · ${width}×${height} · $fps fps · $kbps kbps · ${if (reference != null) "TEST PATTERN (pre-encoded)" else "hardware encoder"}"
         } }
     }
     private fun onTextureThread(action: () -> Unit) {

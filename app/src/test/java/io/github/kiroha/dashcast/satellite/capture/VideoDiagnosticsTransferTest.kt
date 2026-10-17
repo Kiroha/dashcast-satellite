@@ -169,4 +169,26 @@ class VideoDiagnosticsTransferTest {
         assertFalse(JSONObject(transfer.next(3)!!).has("details"))
     }
 
+
+    @Test fun `reference contract requires all exact capabilities and schema three stays generation owned`() {
+        val welcome = JSONObject().put("videoDiagnostics",1).put("videoDiagnosticsDetails",1)
+            .put("videoDiagnosticsH264",1).put("videoReferenceTest",1)
+        assertTrue(VideoDiagnosticsWire.referenceSupported(welcome))
+        for (key in listOf("videoDiagnostics", "videoDiagnosticsDetails", "videoDiagnosticsH264", "videoReferenceTest")) {
+            for (bad in listOf(JSONObject.NULL, true, "1", 1.0, 2)) {
+                assertFalse(VideoDiagnosticsWire.referenceSupported(JSONObject(welcome.toString()).put(key,bad)))
+            }
+        }
+        val transfer = VideoDiagnosticsTransfer.Session { 0 }
+        val history = VideoSenderDiagnostics { 0 }; history.begin(1,true)
+        fun send() = transfer.send(details={history.snapshot()}, h264Details={history.snapshot(true)},
+            referenceDetails={history.snapshot(true,true)}) { message(it) }
+        transfer.connected(1,true,true,true,true); assertTrue(send())
+        val reference = JSONObject(transfer.next(1)!!).getJSONObject("details")
+        assertEquals(3,reference.getInt("schema")); assertEquals("reference",reference.getJSONArray("attempts").getJSONObject(0).getString("sourceMode"))
+        transfer.connected(2,true,true,true); assertTrue(send()); assertNull(transfer.next(1))
+        val legacy = JSONObject(transfer.next(2)!!).getJSONObject("details")
+        assertEquals(2,legacy.getInt("schema")); assertEquals(0,legacy.getJSONArray("attempts").length())
+    }
+
 }

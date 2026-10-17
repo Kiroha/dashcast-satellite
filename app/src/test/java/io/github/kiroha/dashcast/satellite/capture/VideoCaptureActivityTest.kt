@@ -26,7 +26,7 @@ import io.github.kiroha.dashcast.satellite.SatelliteState
 class VideoCaptureActivityTest {
     @After fun reset() {
         VideoControlBridge.link?.let { VideoControlBridge.disconnected(it.generation) }
-        VideoState.status = "stopped"; VideoState.captureBusy = false
+        VideoState.status = "stopped"; VideoState.captureBusy = false; VideoState.reference = false
     }
     @Test fun `consent cancellation leaves control and guidance state intact`() {
         val original = SatelliteState.transport
@@ -172,4 +172,32 @@ class VideoCaptureActivityTest {
     }
     private fun link(generation: Long) = VideoLink(generation, VideoLan(ShadowNetwork.newInstance(301),
         "wlan0", setOf("192.168.49.2"), true, "192.168.49.1")) { _, done -> done(true) }
+
+    @Test fun `reference button is capability gated and cannot overlap normal sharing`() {
+        val controller = Robolectric.buildActivity(VideoCaptureActivity::class.java).setup()
+        val activity = controller.get(); ReflectionHelpers.setField(activity,"chosen",activity.packageName)
+        VideoControlBridge.connected(link(101)); ReflectionHelpers.callInstanceMethod<Void>(activity,"render")
+        assertFalse(activity.findViewById<Button>(R.id.video_reference).isEnabled)
+        val normal = link(102)
+        VideoControlBridge.connected(VideoLink(normal.generation,normal.lan,referenceSupported=true) { _,complete -> complete(true) })
+        ReflectionHelpers.callInstanceMethod<Void>(activity,"render")
+        assertTrue(activity.findViewById<Button>(R.id.video_reference).isEnabled)
+        activity.findViewById<Button>(R.id.video_reference).performClick()
+        val dialog = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+        assertTrue(org.robolectric.Shadows.shadowOf(dialog).message.toString().contains("No captured app images"))
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(activity.findViewById<Button>(R.id.video_start).isEnabled)
+        assertTrue(activity.findViewById<TextView>(R.id.video_status).text.contains("TEST PATTERN"))
+        result(activity,Activity.RESULT_OK,Intent())
+        val service = shadowOf(activity).nextStartedService
+        assertTrue(service.getBooleanExtra(VideoCaptureService.REFERENCE,false))
+        assertTrue(service.hasExtra(VideoCaptureService.CONSENT_AT))
+        VideoState.status="reference_complete"; VideoState.captureBusy=false
+        ReflectionHelpers.callInstanceMethod<Void>(activity,"render")
+        assertTrue(activity.findViewById<Button>(R.id.video_start).isEnabled)
+        assertTrue(activity.findViewById<TextView>(R.id.video_status).text.contains("new Android consent"))
+        controller.pause().stop().destroy()
+    }
+
 }

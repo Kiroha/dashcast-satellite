@@ -142,4 +142,13 @@
     <string name="video_diagnostics_failed">Diagnostics were not confirmed. Check the connection and try again.</string>
     <string name="video_diagnostics_timeout">No confirmation from DashCast. Try again.</string>
     <string name="video_h264_profile_unsupported">Video sharing stopped: the encoder could not provide compatible H.264 video. Send diagnostics to DashCast.</string>
+    <string name="video_reference">Test video compatibility</string>
+    <string name="video_reference_continue">Continue to Android consent</string>
+    <string name="video_reference_help">While parked, test a synthetic TEST PATTERN through the same video connection. No captured app images are sent during this test. Android still requires screen-sharing consent: choose the selected app and leave it open on the Tbox, then return to DashCast. The test stops after up to 15 seconds of negotiation/transmission, or 60 seconds after consent even without a viewer. It does not prove hardware decoding or lower CPU use. A new consent is required for normal app sharing.</string>
+    <string name="video_reference_availability">Compatibility test requires a selected app and a connected DashCast with reference-test support. Normal sharing and testing cannot run together.</string>
+    <string name="video_reference_consent">TEST PATTERN · awaiting Android consent</string>
+    <string name="video_reference_active">TEST PATTERN test active · open the viewer in DashCast. App images are not sent. The test ends automatically.</string>
+    <string name="video_reference_notification">TEST PATTERN compatibility test · stops automatically</string>
+    <string name="video_reference_complete">Compatibility test ended. Send diagnostics to DashCast. This does not confirm a decoded image; start normal sharing with a new Android consent.</string>
+    <string name="video_reference_paused">Video test · open the shared app on the Tbox to provide a fresh frame, then return to DashCast. The deadline continues.</string>
 </resources>

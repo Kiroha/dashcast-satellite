@@ -41,7 +41,7 @@ class VideoCaptureServiceTest {
     private lateinit var owner: VideoLink
     private var grants = 0
     @Before fun setup() {
-        VideoState.status = "stopped"; VideoState.captureBusy = false
+        VideoState.status = "stopped"; VideoState.captureBusy = false; VideoState.reference = false
         controller = Robolectric.buildService(VideoCaptureService::class.java).create()
         service = controller.get()
         shadowOf(ReflectionHelpers.getField<Handler>(service, "worker").looper).pause()
@@ -57,7 +57,7 @@ class VideoCaptureServiceTest {
     @After fun cleanup() {
         destroyAndJoin()
         VideoControlBridge.link?.let { VideoControlBridge.disconnected(it.generation) }
-        VideoState.status = "stopped"; VideoState.captureBusy = false
+        VideoState.status = "stopped"; VideoState.captureBusy = false; VideoState.reference = false
     }
     @Test fun `consent without viewer waits with Stop and resumes same projection across viewer closure`() {
         start(); flushWorker()
@@ -234,8 +234,8 @@ class VideoCaptureServiceTest {
         thread.join(2000)
         assertFalse("Capture cleanup must finish", thread.isAlive)
     }
-    private fun link(generation: Long) = VideoLink(generation, VideoLan(ShadowNetwork.newInstance(301),
-        "wlan0", setOf("192.168.49.2"), true, "192.168.49.1")) { _, complete -> complete(true) }
+    private fun link(generation: Long, reference: Boolean = false) = VideoLink(generation, VideoLan(ShadowNetwork.newInstance(301),
+        "wlan0", setOf("192.168.49.2"), true, "192.168.49.1"), referenceSupported = reference) { _, complete -> complete(true) }
     private class FakeEngine : VideoCaptureEngine {
         var starts = 0; var resumes = 0; var closes = 0; var stats = 0
         var starting: () -> Unit = {}
@@ -272,5 +272,70 @@ class VideoCaptureServiceTest {
         @Implementation fun unregisterCallback(callback: MediaProjection.Callback) { callbacks.remove(callback) }
         @Implementation fun stop() { stops++ }
         fun revoke() { callbacks.toMap().forEach { (callback, handler) -> handler.post { callback.onStop() } } }
+    }
+
+    @Test fun `reference expires without a viewer or callback and releases its grant`() {
+        owner = link(502,true); VideoControlBridge.connected(owner)
+        service.onStartCommand(Intent().setAction(VideoCaptureService.START)
+            .putExtra(VideoCaptureService.CONSENT,Intent()).putExtra(VideoCaptureService.GENERATION,owner.generation)
+            .putExtra(VideoCaptureService.REFERENCE,true).putExtra(VideoCaptureService.CONSENT_AT,android.os.SystemClock.elapsedRealtime()),0,1)
+        flushWorker(); assertEquals(1,grants)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(60))
+        assertEquals("reference_complete",VideoState.status)
+        signal("video.ready"); assertEquals(0,engine.resumes)
+        assertReferenceDeadlineCleanup()
+    }
+    @Test fun `reference media deadline ignores repeated readiness and expires without encoded frames`() {
+        owner = link(502,true); VideoControlBridge.connected(owner)
+        service.onStartCommand(Intent().setAction(VideoCaptureService.START)
+            .putExtra(VideoCaptureService.CONSENT,Intent()).putExtra(VideoCaptureService.GENERATION,owner.generation)
+            .putExtra(VideoCaptureService.REFERENCE,true).putExtra(VideoCaptureService.CONSENT_AT,android.os.SystemClock.elapsedRealtime()),0,1)
+        flushWorker()
+        val reference = ReflectionHelpers.getField<ReferenceSession>(service,"reference")
+        signal("video.ready"); assertEquals(1,engine.resumes)
+        reference.mediaStarted(); ReflectionHelpers.callInstanceMethod<Void>(service,"scheduleReferenceDeadline")
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        signal("video.closed"); signal("video.ready"); assertEquals(2,engine.resumes)
+        reference.mediaStarted(); ReflectionHelpers.callInstanceMethod<Void>(service,"scheduleReferenceDeadline")
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
+        assertEquals("reference_complete",VideoState.status)
+        assertReferenceDeadlineCleanup()
+    }
+    @Test fun `reference request on legacy receiver refuses before acquiring projection`() {
+        service.onStartCommand(Intent().setAction(VideoCaptureService.START)
+            .putExtra(VideoCaptureService.CONSENT,Intent()).putExtra(VideoCaptureService.GENERATION,owner.generation)
+            .putExtra(VideoCaptureService.REFERENCE,true).putExtra(VideoCaptureService.CONSENT_AT,android.os.SystemClock.elapsedRealtime()),0,1)
+        flushWorker(); assertEquals(0,grants); assertEquals("control_unavailable",VideoState.status)
+    }
+
+
+    private fun assertReferenceDeadlineCleanup() {
+        // stopSelf is asynchronous on Android: prove the deadline requested framework teardown
+        // before simulating its onDestroy, rather than relying on unconditional @After cleanup.
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("The deadline must request stopSelf", shadowOf(service).isStoppedBySelf)
+        assertEquals("reference_complete", VideoState.status)
+        assertEquals(0, engine.closes); assertEquals(0, grant.stops)
+        assertTrue(VideoState.captureBusy)
+        val resumes = engine.resumes
+        destroyAndJoin()
+        assertEquals(1, engine.closes); assertEquals(1, grant.stops)
+        assertTrue(grant.callbacks.isEmpty())
+        assertFalse(VideoState.captureBusy); assertFalse(VideoState.active)
+        assertTrue(shadowOf(service).isForegroundStopped)
+        assertTrue(shadowOf(service).notificationShouldRemoved)
+        // Detached control events and a late redelivery of the old consent cannot restart this lease.
+        VideoControlBridge.receive(owner, JSONObject().put("type", "video.ready"))
+        service.onStartCommand(Intent().setAction(VideoCaptureService.START)
+            .putExtra(VideoCaptureService.CONSENT, Intent()).putExtra(VideoCaptureService.GENERATION, owner.generation)
+            .putExtra(VideoCaptureService.REFERENCE, true).putExtra(VideoCaptureService.CONSENT_AT, 0L), 0, 2)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, grants); assertEquals(1, engine.starts); assertEquals(resumes, engine.resumes)
+        assertEquals(1, engine.closes); assertEquals(1, grant.stops)
+        assertEquals("reference_complete", VideoState.status)
+        assertFalse(VideoState.captureBusy)
+        // Match the existing explicit-destruction fixtures: @After only cleans this fresh instance.
+        controller = Robolectric.buildService(VideoCaptureService::class.java).create()
+        service = controller.get()
     }
 }

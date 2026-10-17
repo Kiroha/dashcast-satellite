@@ -25,6 +25,7 @@ class VideoCaptureActivity : Activity() {
     private var chosen: String? = null
     private var pendingGeneration = -1L
     private var consentPending = false
+    private var pendingReference = false
     private var launchDeadline = 0L
     private val refresh = object : Runnable {
         override fun run() {
@@ -57,21 +58,16 @@ class VideoCaptureActivity : Activity() {
         chosen = savedInstanceState?.getString("chosen")
         pendingGeneration = savedInstanceState?.getLong("generation", -1) ?: -1
         consentPending = savedInstanceState?.getBoolean("pending") ?: false
+        pendingReference = savedInstanceState?.getBoolean("reference") ?: false
         findViewById<Button>(R.id.video_choose).setOnClickListener { chooseApplication() }
         findViewById<Button>(R.id.video_open_app).setOnClickListener { openChosen() }
-        findViewById<Button>(R.id.video_start).setOnClickListener {
-            val link = VideoControlBridge.link
-            if (link == null || chosen == null || (VideoState.active || VideoState.captureBusy)) return@setOnClickListener
-            try {
-                pendingGeneration = link.generation; consentPending = true
-                VideoDiagnostics.record(VideoDiagnostics.Event.CONSENT_REQUESTED)
-                @Suppress("DEPRECATION")
-                startActivityForResult(getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent(), CAPTURE)
-            } catch (error: Exception) {
-                VideoDiagnostics.exception(VideoDiagnostics.Event.CAPTURE_UNAVAILABLE, error)
-                consentPending = false; toast(R.string.video_unavailable)
-            }
-            render()
+        findViewById<Button>(R.id.video_start).setOnClickListener { requestConsent(false) }
+        findViewById<Button>(R.id.video_reference).setOnClickListener {
+            if (VideoControlBridge.link?.referenceSupported != true || VideoState.captureBusy || VideoState.active || consentPending) return@setOnClickListener
+            AlertDialog.Builder(this).setTitle(R.string.video_reference)
+                .setMessage(R.string.video_reference_help)
+                .setPositiveButton(R.string.video_reference_continue) { _, _ -> requestConsent(true) }
+                .setNegativeButton(android.R.string.cancel, null).show()
         }
         findViewById<Button>(R.id.video_stop).setOnClickListener {
             stopService(Intent(this, VideoCaptureService::class.java))
@@ -88,6 +84,21 @@ class VideoCaptureActivity : Activity() {
         }
         findViewById<TextView>(R.id.video_help).setText(if (Build.VERSION.SDK_INT >= 34)
             R.string.video_help_app else R.string.video_help_display)
+    }
+    private fun requestConsent(reference: Boolean) {
+        val link = VideoControlBridge.link
+        if (link == null || chosen == null || VideoState.active || VideoState.captureBusy || consentPending ||
+            (reference && !link.referenceSupported)) return
+        try {
+            pendingReference = reference; pendingGeneration = link.generation; consentPending = true
+            VideoDiagnostics.record(VideoDiagnostics.Event.CONSENT_REQUESTED)
+            @Suppress("DEPRECATION")
+            startActivityForResult(getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent(), CAPTURE)
+        } catch (error: Exception) {
+            VideoDiagnostics.exception(VideoDiagnostics.Event.CAPTURE_UNAVAILABLE, error)
+            consentPending = false; toast(R.string.video_unavailable)
+        }
+        render()
     }
     @Suppress("DEPRECATION")
     private fun chooseApplication() {
@@ -119,13 +130,16 @@ class VideoCaptureActivity : Activity() {
             render(); return
         }
         val link = VideoControlBridge.link
-        if (link == null || link.generation != pendingGeneration || (VideoState.active || VideoState.captureBusy)) {
+        if (link == null || link.generation != pendingGeneration || (pendingReference && !link.referenceSupported) || (VideoState.active || VideoState.captureBusy)) {
             toast(R.string.video_connection_required); render(); return
         }
         try {
             VideoState.status = "starting"
+            VideoState.reference = pendingReference
             startForegroundService(Intent(this, VideoCaptureService::class.java).setAction(VideoCaptureService.START)
-                .putExtra(VideoCaptureService.CONSENT, data).putExtra(VideoCaptureService.GENERATION, link.generation))
+                .putExtra(VideoCaptureService.CONSENT, data).putExtra(VideoCaptureService.GENERATION, link.generation)
+                .putExtra(VideoCaptureService.REFERENCE, pendingReference)
+                .putExtra(VideoCaptureService.CONSENT_AT, android.os.SystemClock.elapsedRealtime()))
             // The foreground capture lease is enough; a shared central screen may hide the viewer.
             launchDeadline = android.os.SystemClock.elapsedRealtime() + 10_000
         } catch (error: Exception) {
@@ -138,6 +152,7 @@ class VideoCaptureActivity : Activity() {
         outState.putString("chosen", chosen)
         outState.putLong("generation", pendingGeneration)
         outState.putBoolean("pending", consentPending)
+        outState.putBoolean("reference", pendingReference)
         super.onSaveInstanceState(outState)
     }
     override fun onResume() { super.onResume(); main.post(refresh) }
@@ -150,7 +165,11 @@ class VideoCaptureActivity : Activity() {
         findViewById<TextView>(R.id.video_application).text = getString(R.string.video_selected, label ?: getString(R.string.video_none))
         val link = VideoControlBridge.link
         findViewById<TextView>(R.id.video_status).setText(when {
+            consentPending && pendingReference -> R.string.video_reference_consent
             consentPending -> R.string.video_consent_pending
+            VideoState.status == "reference_complete" -> R.string.video_reference_complete
+            VideoState.reference && VideoState.status == "capture_paused" -> R.string.video_reference_paused
+            VideoState.reference && (VideoState.active || VideoState.captureBusy) -> R.string.video_reference_active
             VideoState.status == "waiting_viewer" -> R.string.video_waiting_viewer
             VideoState.status == "capture_paused" -> R.string.video_source_paused
             VideoState.status == "streaming" -> R.string.video_streaming
@@ -189,6 +208,7 @@ class VideoCaptureActivity : Activity() {
         findViewById<Button>(R.id.video_choose).isEnabled = !(VideoState.active || VideoState.captureBusy) && !consentPending
         findViewById<Button>(R.id.video_open_app).isEnabled = chosen != null && !consentPending
         findViewById<Button>(R.id.video_start).isEnabled = chosen != null && link != null && !(VideoState.active || VideoState.captureBusy) && !consentPending
+        findViewById<Button>(R.id.video_reference).isEnabled = chosen != null && link?.referenceSupported == true && !(VideoState.active || VideoState.captureBusy) && !consentPending
         findViewById<Button>(R.id.video_stop).isEnabled = (VideoState.active || VideoState.captureBusy)
     }
     private fun toast(resource: Int) { Toast.makeText(this, resource, Toast.LENGTH_LONG).show() }

@@ -53,4 +53,16 @@ class VideoSenderDiagnosticsTest {
         val legacy=history.snapshot();assertEquals(1,legacy.getInt("schema"));assertFalse(legacy.getJSONArray("attempts").getJSONObject(0).has("h264"))
     }
 
+
+    @Test fun `reference attempt mode is immutable and never mislabeled in legacy details`() {
+        val history = VideoSenderDiagnostics { 100 }
+        history.begin(1); history.begin(2, true)
+        assertEquals(1, history.snapshot().getJSONArray("attempts").length())
+        assertEquals(1, history.snapshot(true).getJSONArray("attempts").length())
+        val rows = history.snapshot(true, true).getJSONArray("attempts")
+        assertEquals("reference", rows.getJSONObject(0).getString("sourceMode"))
+        assertEquals("capture", rows.getJSONObject(1).getString("sourceMode"))
+        assertTrue(rows.getJSONObject(1).getBoolean("ended"))
+    }
+
 }

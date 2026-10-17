@@ -66,7 +66,10 @@ object VideoPolicy {
         require(message.toString().toByteArray(Charsets.UTF_8).size <= 65_536)
         require(message.getString("negotiation").matches(Regex("[A-Za-z0-9_-]{1,64}")))
         when (message.getString("type")) {
-            "video.offer" -> sdp(message.getString("sdp"))
+            "video.offer" -> {
+                if (message.has("sourceMode")) require(message.get("sourceMode") == "reference")
+                sdp(message.getString("sdp"))
+            }
             "video.ice" -> {
                 require(remoteCandidate(message.getString("candidate")))
                 require(message.getString("sdpMid").length <= 64)

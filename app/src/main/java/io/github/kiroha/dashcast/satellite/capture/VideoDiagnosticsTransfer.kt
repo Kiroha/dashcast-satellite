@@ -15,14 +15,16 @@ object VideoDiagnosticsTransfer {
             private set
         private var detailsSupported = false
         private var h264Supported = false
+        private var referenceSupported = false
         private var generation = -1L
         private var request = 0L
         private var pending: String? = null
         private var requestedAt = 0L
         private var sent = false
-        @Synchronized fun connected(owner: Long, supported: Boolean, details: Boolean = false, h264: Boolean = false) {
+        @Synchronized fun connected(owner: Long, supported: Boolean, details: Boolean = false, h264: Boolean = false, reference: Boolean = false) {
             detailsSupported = supported && details
             h264Supported = detailsSupported && h264
+            referenceSupported = h264Supported && reference
             if (result == Result.SENDING) result = Result.FAILED
             generation = owner; request = 0; pending = null; sent = false
             availability = if (supported) Availability.AVAILABLE else Availability.UNSUPPORTED
@@ -30,15 +32,15 @@ object VideoDiagnosticsTransfer {
         @Synchronized fun disconnected(owner: Long) {
             if (generation != owner) return
             if (result == Result.SENDING) result = Result.FAILED
-            detailsSupported = false; h264Supported = false
+            detailsSupported = false; h264Supported = false; referenceSupported = false
             generation = -1; pending = null; sent = false; availability = Availability.DISCONNECTED
         }
-        @Synchronized fun send(details: (() -> JSONObject)? = null, h264Details: (() -> JSONObject)? = null, snapshot: (Long) -> JSONObject): Boolean {
+        @Synchronized fun send(details: (() -> JSONObject)? = null, h264Details: (() -> JSONObject)? = null, referenceDetails: (() -> JSONObject)? = null, snapshot: (Long) -> JSONObject): Boolean {
             if (availability != Availability.AVAILABLE) return false
             if (request >= VideoDiagnosticsWire.MAX_ORDINAL) { result = Result.FAILED; return false }
             val json = try { snapshot(++request).also {
                 // Capability and complete snapshot belong to this authenticated generation.
-                if (detailsSupported && details != null) it.put("details", if (h264Supported && h264Details != null) h264Details() else details()) else it.remove("details")
+                if (detailsSupported && details != null) it.put("details", if (referenceSupported && referenceDetails != null) referenceDetails() else if (h264Supported && h264Details != null) h264Details() else details()) else it.remove("details")
                 VideoDiagnosticsWire.validate(it)
             } }
                 catch (_: Exception) { pending = null; sent = false; result = Result.FAILED; return false }
@@ -82,9 +84,9 @@ object VideoDiagnosticsTransfer {
             if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
         }
             .getOrDefault(1).coerceIn(1, VideoDiagnosticsWire.MAX_ORDINAL).toInt()
-        return session.send(details = { VideoDiagnostics.sender.snapshot() }, h264Details = { VideoDiagnostics.sender.snapshot(true) }) { VideoDiagnostics.snapshot(it, version) }
+        return session.send(details = { VideoDiagnostics.sender.snapshot() }, h264Details = { VideoDiagnostics.sender.snapshot(true) }, referenceDetails = { VideoDiagnostics.sender.snapshot(true, true) }) { VideoDiagnostics.snapshot(it, version) }
     }
-    internal fun connected(owner: Long, supported: Boolean, details: Boolean = false, h264: Boolean = false) = session.connected(owner, supported, details, h264)
+    internal fun connected(owner: Long, supported: Boolean, details: Boolean = false, h264: Boolean = false, reference: Boolean = false) = session.connected(owner, supported, details, h264, reference)
     internal fun disconnected(owner: Long) = session.disconnected(owner)
     internal fun next(owner: Long) = session.next(owner)
     internal fun expire(owner: Long) = session.expire(owner)

@@ -9,6 +9,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 data class VideoLan(val network: Network, val interfaceName: String, val addresses: Set<String>, val wifi: Boolean, val receiverHost: String)
 class VideoLink(val generation: Long, val lan: VideoLan,
     private val terminate: (String) -> Unit = {},
+    val referenceSupported: Boolean = false,
     private val transmit: (JSONObject, (Boolean) -> Unit) -> Unit) {
     private data class Viewer(val ready: Boolean, val epoch: Long)
     @Volatile private var viewer = Viewer(false, 0)
@@ -63,6 +64,8 @@ object VideoState {
     @Volatile var status: String = "stopped"
         internal set
     @Volatile var metrics: String = ""
+        internal set
+    @Volatile var reference = false
         internal set
     @Volatile var captureBusy = false
         internal set

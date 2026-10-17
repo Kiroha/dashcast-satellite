@@ -125,8 +125,8 @@ Support logs never receive tokens, SDP, notifications, or route text.
 ## Second milestone
 
 User-consented MediaProjection, app launch on the external box and a native WebRTC sender are
-available experimentally. The receiver still uses its installed WebView; capture/encoding remain
-on the companion. Start at 960×540 / 15 fps / 1.5 Mbps and measure car decoding/load alongside
+available experimentally. DashCast 1.9.46-beta uses the same pinned native WebRTC SDK for hardware H.264 reception;
+capture/encoding remain on the companion. No system WebView replacement is required. Start at 960×540 / 15 fps / 1.5 Mbps and measure car decoding/load alongside
 Overdrive before claiming a CPU/GPU reduction. See [setup and performance gates](docs/EXTERNAL_VIDEO.md)
 and [native dependency pin/ABI impact](docs/WEBRTC_DEPENDENCY.md).
 Capture does not create an independent invisible display or authorize input injection.

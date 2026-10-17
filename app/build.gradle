@@ -11,8 +11,8 @@ android {
         applicationId = 'io.github.kiroha.dashcast.satellite'
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
-        versionName = '0.9.8'
+        versionCode = 19
+        versionName = '0.9.9'
     }
     signingConfigs {
         if (hasReleaseKey) {
@@ -65,7 +65,7 @@ dependencies {
     // Vetted password-authenticated exchange permits a six-digit code without offline guessing.
     implementation 'org.bouncycastle:bcprov-jdk15to18:1.86'
     implementation 'org.java-websocket:Java-WebSocket:1.6.0'
-    // Maintained native sender; receiver uses its installed WebView instead.
+    // Same reviewed native SDK as DashCast; hardware H.264 send-only interoperability.
     implementation 'io.github.webrtc-sdk:android:150.7871.01'
     // Do not send library diagnostics to a log backend: frame payloads are private.
     runtimeOnly 'org.slf4j:slf4j-nop:2.0.6'
@@ -77,16 +77,20 @@ dependencies {
 }
 
 // Refuse a changed native binary under the reviewed coordinate in local builds and CI.
+afterEvaluate {
+def reviewedWebRtcFiles = files(['debugRuntimeClasspath', 'releaseRuntimeClasspath'].collect { configuration ->
+    configurations.getByName(configuration).incoming.artifactView {
+        componentFilter { id -> id instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier &&
+            id.group == 'io.github.webrtc-sdk' && id.module == 'android' }
+    }.files
+})
 tasks.register('verifyWebRtcArchive') {
+    inputs.files(reviewedWebRtcFiles)
     doLast {
-        def artifact = configurations.debugRuntimeClasspath.resolvedConfiguration.resolvedArtifacts.find {
-            it.moduleVersion.id.group == 'io.github.webrtc-sdk' && it.name == 'android'
-        }
-        if (artifact == null || artifact.moduleVersion.id.version != '150.7871.01') {
-            throw new GradleException('Reviewed native WebRTC archive unavailable.')
-        }
+        def archive = inputs.files.singleFile
+        if (archive.name != 'android-150.7871.01.aar') throw new GradleException('Reviewed native WebRTC archive unavailable.')
         def digest = java.security.MessageDigest.getInstance('SHA-256')
-        artifact.file.withInputStream { stream ->
+        archive.withInputStream { stream ->
             byte[] buffer = new byte[8192]
             int count
             while ((count = stream.read(buffer)) > 0) digest.update(buffer, 0, count)
@@ -97,3 +101,4 @@ tasks.register('verifyWebRtcArchive') {
     }
 }
 tasks.named('preBuild') { dependsOn 'verifyWebRtcArchive' }
+}

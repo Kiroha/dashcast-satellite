@@ -137,8 +137,8 @@ internal class NativeVideoSender(
             ReferenceEncoderFactory(checkNotNull(referenceAssets), reference, ticket::ownsSource)
         else ExplicitBaselineHardwareEncoderFactory(checkNotNull(egl).eglBaseContext, profileUnsupported)
         factory = resources.own(PeerConnectionFactory.builder().setOptions(options)
-            .setVideoEncoderFactory(StartupKeyframeEncoderFactory(hardware, ticket, diagnostics, profileUnsupported))
-            .setVideoDecoderFactory(SoftwareVideoDecoderFactory()).createPeerConnectionFactory()) { it.dispose() }
+            .setVideoEncoderFactory(StartupKeyframeEncoderFactory(H264OnlyEncoderFactory(hardware), ticket, diagnostics, profileUnsupported))
+            .setVideoDecoderFactory(ReceiveNothingDecoderFactory).createPeerConnectionFactory()) { it.dispose() }
         val peerSource = resources.own(factory!!.createVideoSource(true)) { it.dispose() }.also { source = it }
         track = resources.own(factory!!.createVideoTrack("dashsat-video", peerSource)) { it.dispose() }
         onTextureThread {

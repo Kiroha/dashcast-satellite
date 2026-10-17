@@ -144,14 +144,13 @@ No wire message or protocol fixture changes are required.
 ## Performance acceptance on the actual vehicle
 
 The goal is lower sustained **vehicle** CPU/GPU workload than running the navigation app locally.
-Hardware encoding on the box does not prove hardware decoding in the vehicle WebView. The receiver
-has an opt-in overlay: long-press the main-display preview to toggle it, then open the cluster viewer.
-It reports codec, dimensions, decoded FPS, bitrate, dropped frames and average decode time when
-available. `powerEfficientDecoder`, when supplied by WebView, is an efficiency hint and does not
-certify hardware decoding. Hardware decoding remains **unknown** without independent platform
-decoder evidence; codec choice/low decode time alone is not evidence. Counters are
-sanitized; overlay text contains no route or connection identifiers. Missing decoder counters do not
-use received bytes as a freshness substitute, and a frozen map clears after six seconds.
+DashCast 1.9.46-beta uses app-local native WebRTC matching DashSat 0.9.9-dev, with hardware-only
+H.264 decode and EGL texture rendering. Reports distinguish codec creation, successful hardware
+initialization, decoded textures and completed renders. Use **Send diagnostics to DashCast**;
+the former long-press WebView overlay is retired. A decoder name or low latency alone does not
+prove that an image was rendered, and hardware decode does not establish lower total workload.
+No received byte/control counter refreshes an image; explicit stop clears immediately and stalled
+rendering clears after six seconds. H.265 remains unadvertised pending end-to-end validation.
 
 Use identical route/scenario, display brightness, Overdrive settings and ambient conditions:
 

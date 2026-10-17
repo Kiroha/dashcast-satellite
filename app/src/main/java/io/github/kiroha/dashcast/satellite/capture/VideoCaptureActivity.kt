@@ -157,6 +157,7 @@ class VideoCaptureActivity : Activity() {
             VideoState.status in setOf("starting", "negotiating", "connected_waiting_frames") -> R.string.video_connecting
             VideoState.status == "control_unavailable" -> R.string.video_control_lost
             VideoState.status == "receiver_address_unsupported" -> R.string.video_address_unsupported
+            VideoState.status == "h264_profile_unsupported" -> R.string.video_h264_profile_unsupported
             VideoState.status != "stopped" -> R.string.video_restart_required
             link == null -> R.string.video_connection_required
             else -> R.string.video_ready

@@ -110,6 +110,12 @@ internal class NativeVideoSender(
             recoveryActive() && captureOwner.owns(captureEpoch) &&
                 link.ownsViewer(viewerEpoch) && VideoControlBridge.link === link
         }).also { startup = it }
+        val current = VideoNegotiation(UUID.randomUUID().toString()).also { attempt = it }
+        val profileFailure = H264ProfileFailure(ticket::ownsSource, post, { owns(current) }) {
+            VideoDiagnostics.record(VideoDiagnostics.Event.HARDWARE_UNAVAILABLE)
+            failed("h264_profile_unsupported")
+        }
+        val profileUnsupported = profileFailure::report
         // Allocate the immutable row before factory injection: initEncode may emit synchronously.
         val diagnosticOwner = VideoDiagnostics.sender.begin(sharingSession).also { diagnosticAttempt = it }
         val diagnostics = EncodedH264Diagnostics(ticket::ownsSource,
@@ -121,9 +127,9 @@ internal class NativeVideoSender(
                 PeerConnectionFactory.Options.ADAPTER_TYPE_LOOPBACK or PeerConnectionFactory.Options.ADAPTER_TYPE_UNKNOWN
         }
         // No mutable-current lookup: this factory, source, track and ticket belong to one attempt.
-        val hardware = HardwareVideoEncoderFactory(checkNotNull(egl).eglBaseContext, false, false)
+        val hardware = ExplicitBaselineHardwareEncoderFactory(checkNotNull(egl).eglBaseContext, profileUnsupported)
         factory = resources.own(PeerConnectionFactory.builder().setOptions(options)
-            .setVideoEncoderFactory(StartupKeyframeEncoderFactory(hardware, ticket, diagnostics))
+            .setVideoEncoderFactory(StartupKeyframeEncoderFactory(hardware, ticket, diagnostics, profileUnsupported))
             .setVideoDecoderFactory(SoftwareVideoDecoderFactory()).createPeerConnectionFactory()) { it.dispose() }
         val peerSource = resources.own(factory!!.createVideoSource(true)) { it.dispose() }.also { source = it }
         track = resources.own(factory!!.createVideoTrack("dashsat-video", peerSource)) { it.dispose() }
@@ -131,7 +137,6 @@ internal class NativeVideoSender(
             sourceRelay.bind(peerSource.capturerObserver,
                 { w, h -> peerSource.adaptOutputFormat(w, h, VideoPolicy.FPS) }, ticket::ownsSource)
         }
-        val current = VideoNegotiation(UUID.randomUUID().toString()).also { attempt = it }
         val config = PeerConnection.RTCConfiguration(emptyList()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE

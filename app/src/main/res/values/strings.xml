@@ -141,4 +141,5 @@
     <string name="video_diagnostics_rejected">DashCast could not accept the diagnostics. Try again.</string>
     <string name="video_diagnostics_failed">Diagnostics were not confirmed. Check the connection and try again.</string>
     <string name="video_diagnostics_timeout">No confirmation from DashCast. Try again.</string>
+    <string name="video_h264_profile_unsupported">Video sharing stopped: the encoder could not provide compatible H.264 video. Send diagnostics to DashCast.</string>
 </resources>

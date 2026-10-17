@@ -12,6 +12,7 @@ internal class StartupKeyframeEncoderFactory(
     private val delegate: VideoEncoderFactory,
     private val ticket: StartupKeyframePolicy,
     private val diagnostics: EncodedH264Diagnostics? = null,
+    private val profileUnsupported: (() -> Unit)? = null,
 ) : VideoEncoderFactory {
     override fun getSupportedCodecs() = delegate.supportedCodecs
     override fun getImplementations() = delegate.implementations
@@ -20,7 +21,8 @@ internal class StartupKeyframeEncoderFactory(
         if (!ticket.ownsSource()) return null // Pre-CONNECTED is valid; revoked ownership is not.
         val encoder = delegate.createEncoder(info) ?: return null
         if (!ticket.ownsSource()) { runCatching { encoder.release() }; return null }
-        return if (info.name.equals("H264", true)) StartupKeyframeEncoder(encoder, ticket, diagnostics) else encoder
+        return if (info.name.equals("H264", true)) StartupKeyframeEncoder(encoder, ticket, diagnostics,
+            profileUnsupported?.let { H264ProfileGuard(ticket::ownsSource, it) }) else encoder
     }
 }
 
@@ -28,6 +30,7 @@ internal class StartupKeyframeEncoder(
     private val delegate: VideoEncoder,
     private val ticket: StartupKeyframePolicy,
     private val diagnostics: EncodedH264Diagnostics? = null,
+    private val profileGuard: H264ProfileGuard? = null,
 ) : VideoEncoder {
     // Java default methods are explicit: Kotlin interface delegation can select the SDK default
     // rather than a delegate override (including rates, alignment and the native-encoder path).
@@ -43,18 +46,22 @@ internal class StartupKeyframeEncoder(
     private var initialized = false
     private var bound = false
     private var retired = false
+    private var profileOwner: Any? = null
     override fun initEncode(settings: VideoEncoder.Settings, callback: VideoEncoder.Callback): VideoCodecStatus {
+        profileGuard?.retire(profileOwner)
+        val profileToken = profileGuard?.begin().also { profileOwner = it }
         if (initialized) { ticket.retire(owner); diagnostics?.retire(owner); bound = false; retired = true }
         initialized = true
         if (!retired) diagnostics?.bind(owner)
-        val forwarded = diagnostics?.let { probe -> VideoEncoder.Callback { image, info ->
-            // Inspection failure cannot suppress native delivery; downstream exceptions retain SDK semantics.
-            try { probe.inspect(owner, image) } catch (_: Exception) { /* Optional diagnostics only. */ }
-            callback.onEncodedFrame(image, info)
-        } } ?: callback
+        val forwarded = if (diagnostics != null || profileGuard != null) VideoEncoder.Callback { image, info ->
+            // Optional diagnostics cannot suppress delivery. The independent compatibility gate can.
+            try { diagnostics?.inspect(owner, image) } catch (_: Exception) { /* Optional diagnostics only. */ }
+            if (profileGuard == null || profileGuard.allow(checkNotNull(profileToken), image.buffer))
+                callback.onEncodedFrame(image, info)
+        } else callback
         val status = try { delegate.initEncode(settings, forwarded) }
-        catch (error: Throwable) { diagnostics?.retire(owner); throw error }
-        if (status != VideoCodecStatus.OK) diagnostics?.retire(owner)
+        catch (error: Throwable) { diagnostics?.retire(owner); profileGuard?.retire(profileToken); throw error }
+        if (status != VideoCodecStatus.OK) { diagnostics?.retire(owner); profileGuard?.retire(profileToken) }
         if (!retired && !bound && status == VideoCodecStatus.OK) bound = ticket.bind(owner)
         return status
     }
@@ -69,6 +76,7 @@ internal class StartupKeyframeEncoder(
         return delegate.encode(frame, forwarded)
     }
     override fun release(): VideoCodecStatus {
+        profileGuard?.retire(profileOwner)
         ticket.retire(owner); diagnostics?.retire(owner); bound = false; retired = true
         return delegate.release()
     }

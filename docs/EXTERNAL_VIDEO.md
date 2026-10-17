@@ -238,3 +238,46 @@ For a parked-device test, update both apps, start sharing and keep the DashCast 
 at least 20 seconds. Return to DashSat, select **Send diagnostics to DashCast**, wait for the
 received confirmation, then create the DashCast bug report. Existing pairing remains valid.
 An updated diagnostic report does not itself confirm a decoded image or reduced CPU/GPU load.
+
+## Explicit hardware H264 profile configuration (0.9.7-dev)
+
+The Tbox field report showed actual High-profile SPS bytes (`64001f`) while the receiver negotiated
+Constrained Baseline level 3.1 (`42e01f`). The extra startup keyframes did not correct that mismatch.
+The SHA-pinned WebRTC SDK's Java Baseline path leaves the MediaCodec profile and level unspecified;
+disabling High-profile advertisement in its factory does not force the hardware's output profile.
+
+A narrow Kotlin adapter in `org.webrtc` now reuses the unmodified SDK encoder with an explicit
+MediaCodec profile and level 3.1. The SDK still chooses the hardware codec using its existing model
+exceptions and support policy. Its uninitialized candidate supplies the implementation name, then
+is released exactly once before creating the configured encoder. No MediaCodec, EGL input surface,
+output thread or shader is initialized for this probe. The actual encoder retains the original EGL
+context, color formats, CBR settings, bitrate adjustment and keyframe behavior. Other codecs retain
+their existing path. The native AAR is unchanged; there is no reflection, software encoder fallback,
+SPS modification or SDP rewriting.
+
+Declared Constrained Baseline capability is preferred on API 27 and later. Otherwise declared
+Baseline capability is requested explicitly and the actual output must still pass the Constrained
+Baseline check. A lower negotiated level is refused rather than silently encoding level 3.1, even
+when level asymmetry is enabled. The wrapper applies the profile and level on every configure,
+including SDK-internal resolution or surface-mode restarts. A configuration refusal releases the
+new codec before returning the SDK's ordinary failure status; it does not retry another profile.
+
+A separate lifetime guard checks the fixed SPS profile/constraint/level bytes in a bounded Annex B
+prefix (at most 4 KiB and 32 NAL headers, stopping before picture payload). It requires an observable
+compatible SPS before delivery and rejects known incompatible SPS before the native sender receives
+the encoded image. The guard is independent of the finite startup diagnostics and keyframe budgets.
+It does not retain, copy, modify or release media buffers, validate complete SPS syntax or establish
+that a receiver image was decoded. Each initialization has its own callback generation; a stale
+callback cannot authorize a new initialization or report a failure for it.
+
+One immutable-attempt failure is latched and posted to the service worker. The worker rechecks
+source, viewer, control connection and current-attempt ownership before ending sharing. Codec
+callbacks never drain the texture helper or close native resources. The app displays an explicit
+compatible-H264 failure; existing guidance and control remain independent. Existing manual
+diagnostics retain their original first-output/next-three-keyframes/12-second contract: a late
+rejection stops sharing but its exact SPS values may be outside that diagnostic window.
+
+Keep DashCast 1.9.41-beta or later, install DashSat 0.9.7-dev without re-pairing, and start a new
+authorized share while parked. Keep the viewer visible for 20 seconds. If it stays black or sharing
+stops, send diagnostics to DashCast, wait for receipt and create its bug report. Hardware acceptance
+requires actual compatible SPS output, a decoded image and separate latency/CPU/GPU measurements.

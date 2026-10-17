@@ -152,4 +152,37 @@ class StartupKeyframeEncoderTest {
         }
     }
 
+    private fun h264(profile: Int = 66, flags: Int = 224) = EncodedImage.builder()
+        .setBuffer(java.nio.ByteBuffer.wrap(byteArrayOf(0,0,1,0x67,profile.toByte(),flags.toByte(),31,0x80.toByte(),0,0,1,0x65,0x80.toByte())) ){}
+        .setFrameType(EncodedImage.FrameType.VideoFrameKey).setEncodedWidth(960).setEncodedHeight(540).setCaptureTimeNs(1).createEncodedImage()
+    @Test fun `compatibility gate outlives all four diagnostic samples and twelve seconds without copying or releasing SDK images`() {
+        var now=0L;var failures=0;var delivered=0
+        val rows=mutableListOf<EncodedH264Diagnostics.Observation>()
+        val probe=EncodedH264Diagnostics({true},rows::add){now}
+        val native=Encoder();val guard=H264ProfileGuard({true}){failures++}
+        val wrapper=StartupKeyframeEncoder(native,StartupKeyframePolicy({true}){now*1_000_000},probe,guard)
+        var last:EncodedImage?=null;var lastInfo:VideoEncoder.CodecSpecificInfo?=null
+        wrapper.initEncode(settings,VideoEncoder.Callback{image,info->delivered++;last=image;lastInfo=info})
+        repeat(4){now=it*2000L;val image=h264();val info=VideoEncoder.CodecSpecificInfo();native.callback!!.onEncodedFrame(image,info)
+            assertSame(image,last);assertSame(info,lastInfo);assertEquals(0,image.buffer.position())}
+        assertEquals(4,rows.size);assertEquals(4,delivered)
+        now=20_000;val bad=h264(100,0)
+        native.callback!!.onEncodedFrame(bad,null);native.callback!!.onEncodedFrame(bad,null)
+        assertEquals(4,delivered);assertEquals(4,rows.size);assertEquals(1,failures);assertEquals(0,native.releases)
+        assertEquals(0,bad.buffer.position())
+    }
+    @Test fun `compatibility callback generations fence reinit failure release and source invalidation`() {
+        for(mode in 0..3){
+            var eligible=true;var failures=0;var delivered=0
+            val native=Encoder();val wrapper=StartupKeyframeEncoder(native,StartupKeyframePolicy({eligible}){0},
+                profileGuard=H264ProfileGuard({eligible}){failures++})
+            wrapper.initEncode(settings,VideoEncoder.Callback{_,_->delivered++});val old=native.callback!!
+            when(mode){0->wrapper.initEncode(settings,VideoEncoder.Callback{_,_->delivered++});1->wrapper.release();2->eligible=false
+                3->{native.initStatus=VideoCodecStatus.ERROR;wrapper.initEncode(settings,VideoEncoder.Callback{_,_->delivered++})}}
+            old.onEncodedFrame(h264(100,0),null)
+            assertEquals(0,delivered);assertEquals(0,failures)
+            if(mode==0){native.callback!!.onEncodedFrame(h264(),null);assertEquals(1,delivered)}
+        }
+    }
+
 }

@@ -141,6 +141,30 @@ class VideoCaptureActivityTest {
         controller.pause().stop().destroy()
     }
 
+    @Test fun `incompatible H264 status survives cleanup and a new Start requires consent while control remains connected`() {
+        val owner = link(707); VideoControlBridge.connected(owner)
+        val guidance = SatelliteState.transport
+        VideoState.status = "h264_profile_unsupported"; VideoState.captureBusy = true
+        val controller = Robolectric.buildActivity(VideoCaptureActivity::class.java).setup()
+        val activity = controller.get()
+        ReflectionHelpers.setField(activity, "chosen", activity.packageName)
+        ReflectionHelpers.callInstanceMethod<Void>(activity, "render")
+        val text = activity.findViewById<TextView>(R.id.video_status).text.toString()
+        assertTrue(text.contains("compatible H.264 video")); assertTrue(text.contains("Send diagnostics to DashCast"))
+        assertFalse(VideoState.active); assertFalse(activity.findViewById<Button>(R.id.video_start).isEnabled)
+        VideoState.captureBusy = false
+        ReflectionHelpers.callInstanceMethod<Void>(activity, "render")
+        assertEquals(text, activity.findViewById<TextView>(R.id.video_status).text.toString())
+        assertTrue(activity.findViewById<Button>(R.id.video_start).isEnabled)
+        activity.findViewById<Button>(R.id.video_start).performClick()
+        assertTrue(ReflectionHelpers.getField(activity, "consentPending"))
+        assertNull(shadowOf(activity).nextStartedService)
+        assertSame(owner, VideoControlBridge.link); assertSame(guidance, SatelliteState.transport)
+        val snapshot = VideoDiagnostics.snapshot(1, 17)
+        VideoDiagnosticsWire.validate(snapshot); assertEquals("other_failure", snapshot.getString("state"))
+        controller.pause().stop().destroy()
+    }
+
     private fun result(activity: VideoCaptureActivity, code: Int, intent: Intent?) {
         ReflectionHelpers.callInstanceMethod<Void>(activity, "onActivityResult",
             ClassParameter.from(Int::class.javaPrimitiveType, 10),

@@ -266,3 +266,35 @@ bounded history under its monitor. Encoder/codec/capture/receiver behavior is ot
 These are source/JVM/static checks. Real Tbox encoder bytes, the vehicle's first decoded image,
 latency, thermal behavior and CPU/GPU savings require parked-device validation. Final APK metadata,
 signing and independent checks are recorded with the frozen release artifacts.
+
+## 0.9.7-dev explicit hardware H264 Baseline
+
+The investigated field snapshot received H264 RTP without a decoded image: negotiated profile bytes
+were `42e01f`, while all sampled actual SPS headers were `64001f` (High). This establishes a profile
+mismatch, not a proof that no other decoder issue remains.
+
+The exact `io.github.webrtc-sdk:android:150.7871.01` AAR SHA-256 remains
+`0a1627b1a48c2bc17d9a40d62fc47bd45166f44a311e95917f147c402de379b0`.
+`javap -c -p org.webrtc.HardwareVideoEncoder` on its `classes.jar` shows that the Baseline branch of
+`initEncodeInternal` at bytecode offset 310 skips profile/level writes; only the High branch at
+288–304 writes them. The initialization exception table catches IllegalArgumentException and
+IllegalStateException. `getImplementationName` directly returns the chosen codec name before init.
+The uninitialized release path has no output thread, initialized shader or allocated YUV textures.
+This is shipped-artifact evidence, not an assumption based only on an upstream HEAD source file.
+
+The adapter keeps the original SDK hardware encoder and candidate choice. Tests reach its actual
+Java initialization with an injected MediaCodecWrapper and exercise a size-triggered internal
+restart. They check explicit profile/level, CBR, bitrate, framerate, color format, keyframe interval,
+configuration refusal and exact native-wrapper cleanup. Pure policy and callback tests cover
+Constrained Baseline equivalent patterns, lower negotiated levels/asymmetry, capability selection,
+bounded malformed prefixes, buffer identity, late incompatible output after diagnostic expiry,
+initialization generations and queued failures crossing viewer/source/control ownership changes.
+
+283 tests across 45 suites pass with zero failures, errors or skips. Debug lint reports zero issues
+and debug assembly passes. Protocol and pairing pin verification passes; diagnostic budgets and
+native library bytes remain unchanged. The real Activity regression checks the persistent error,
+Start disabled through cleanup, fresh consent after cleanup, control/guidance independence and the
+existing safe wire-state fallback. Independent source/artifact checks are recorded before
+publication. Static/JVM checks do not
+establish that the Tbox honors the profile, that the vehicle decodes an image or that CPU/GPU usage
+is lower. A parked-device trial with actual SPS and decoded-image observations remains required.

@@ -10,8 +10,16 @@ data class VideoLan(val network: Network, val interfaceName: String, val address
 class VideoLink(val generation: Long, val lan: VideoLan,
     private val terminate: (String) -> Unit = {},
     private val transmit: (JSONObject, (Boolean) -> Unit) -> Unit) {
-    @Volatile var viewerReady = false
-        internal set
+    private data class Viewer(val ready: Boolean, val epoch: Long)
+    @Volatile private var viewer = Viewer(false, 0)
+    var viewerReady: Boolean
+        get() = viewer.ready
+        internal set(value) = synchronized(this) {
+            val previous = viewer
+            viewer = Viewer(value, previous.epoch + if (previous.ready && !value) 1 else 0)
+        }
+    internal val viewerReadyEpoch: Long? get() = viewer.let { if (it.ready) it.epoch else null }
+    internal fun ownsViewer(epoch: Long?): Boolean = viewer.let { it.ready && it.epoch == epoch }
     fun send(message: JSONObject, complete: (Boolean) -> Unit = {}) = transmit(message, complete)
     fun endNegotiation(id: String) = terminate(id)
 }

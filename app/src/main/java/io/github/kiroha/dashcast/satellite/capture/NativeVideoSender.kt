@@ -6,7 +6,7 @@ import org.json.JSONObject
 import org.webrtc.*
 import java.util.UUID
 
-/** All methods/callbacks are serialized by the capture service worker, never the UI thread. */
+/** Control/resource changes run on the service worker; texture and startup gates use immutable ownership. */
 internal class NativeVideoSender(
     private val context: Context,
     private val link: VideoLink,
@@ -14,16 +14,21 @@ internal class NativeVideoSender(
     private val failed: (String) -> Unit,
     private val active: () -> Boolean = { true },
     private val stateChanged: () -> Unit = {},
+    private val recoveryActive: () -> Boolean = { true },
 ) : VideoCaptureEngine {
     private var egl: EglBase? = null
     private var helper: SurfaceTextureHelper? = null
     private var factory: PeerConnectionFactory? = null
+    private val sourceRelay = CaptureObserverRelay()
+    private var startup: StartupKeyframePolicy? = null
+    private var peerResources: PeerVideoResources? = null
     private var source: VideoSource? = null
     private var track: VideoTrack? = null
     private var capture: ProjectionTextureCapturer? = null
     private var projection: MediaProjection? = null
     private var peer: PeerConnection? = null
     private var peerCaptureEpoch: Long? = null
+    private var peerViewerEpoch: Long? = null
     private var attempt: VideoNegotiation? = null
     private var closed = false
     private var retries = 0
@@ -75,19 +80,11 @@ internal class NativeVideoSender(
             VideoDiagnostics.record(VideoDiagnostics.Event.HARDWARE_UNAVAILABLE)
             error("hardware_encoder_unavailable")
         }
-        val options = PeerConnectionFactory.Options().apply {
-            networkIgnoreMask = PeerConnectionFactory.Options.ADAPTER_TYPE_CELLULAR or PeerConnectionFactory.Options.ADAPTER_TYPE_VPN or
-                PeerConnectionFactory.Options.ADAPTER_TYPE_LOOPBACK or PeerConnectionFactory.Options.ADAPTER_TYPE_UNKNOWN
-        }
-        factory = PeerConnectionFactory.builder().setOptions(options).setVideoEncoderFactory(encoder)
-            .setVideoDecoderFactory(SoftwareVideoDecoderFactory()).createPeerConnectionFactory()
         VideoDiagnostics.record(VideoDiagnostics.Event.TEXTURE_INITIALIZING)
         helper = SurfaceTextureHelper.create("dashsat-texture", base.eglBaseContext) ?: error("texture_unavailable")
-        source = factory!!.createVideoSource(true).apply { adaptOutputFormat(VideoPolicy.WIDTH, VideoPolicy.HEIGHT, VideoPolicy.FPS) }
-        track = factory!!.createVideoTrack("dashsat-video", source!!)
-        capture = ProjectionTextureCapturer(projection, helper!!, source!!.capturerObserver, density,
+        capture = ProjectionTextureCapturer(projection, helper!!, sourceRelay, density,
             stopped = { code -> post { if (!closed) failed(code) } },
-            resized = { w, h -> source?.adaptOutputFormat(w, h, VideoPolicy.FPS) },
+            resized = sourceRelay::resized,
             availabilityChanged = { ready -> post {
                 if (!closed && active() && VideoControlBridge.link === link) {
                     // Ordered source loss always fences the old peer, even if a newer texture
@@ -104,7 +101,31 @@ internal class NativeVideoSender(
         if (closed || !active() || !link.viewerReady || VideoControlBridge.link !== link || capture?.owns(captureEpoch) != true) return
         disposePeer()
         if (capture?.owns(captureEpoch) != true) return
+        val captureOwner = capture ?: return
+        val viewerEpoch = link.viewerReadyEpoch ?: return
         peerCaptureEpoch = captureEpoch
+        peerViewerEpoch = viewerEpoch
+        val ticket = StartupKeyframePolicy(eligible = {
+            recoveryActive() && captureOwner.owns(captureEpoch) &&
+                link.ownsViewer(viewerEpoch) && VideoControlBridge.link === link
+        }).also { startup = it }
+        val resources = PeerVideoResources(ticket::close, { onTextureThread { sourceRelay.unbind() } })
+            .also { peerResources = it }
+        val options = PeerConnectionFactory.Options().apply {
+            networkIgnoreMask = PeerConnectionFactory.Options.ADAPTER_TYPE_CELLULAR or PeerConnectionFactory.Options.ADAPTER_TYPE_VPN or
+                PeerConnectionFactory.Options.ADAPTER_TYPE_LOOPBACK or PeerConnectionFactory.Options.ADAPTER_TYPE_UNKNOWN
+        }
+        // No mutable-current lookup: this factory, source, track and ticket belong to one attempt.
+        val hardware = HardwareVideoEncoderFactory(checkNotNull(egl).eglBaseContext, false, false)
+        factory = resources.own(PeerConnectionFactory.builder().setOptions(options)
+            .setVideoEncoderFactory(StartupKeyframeEncoderFactory(hardware, ticket))
+            .setVideoDecoderFactory(SoftwareVideoDecoderFactory()).createPeerConnectionFactory()) { it.dispose() }
+        val peerSource = resources.own(factory!!.createVideoSource(true)) { it.dispose() }.also { source = it }
+        track = resources.own(factory!!.createVideoTrack("dashsat-video", peerSource)) { it.dispose() }
+        onTextureThread {
+            sourceRelay.bind(peerSource.capturerObserver,
+                { w, h -> peerSource.adaptOutputFormat(w, h, VideoPolicy.FPS) }, ticket::ownsSource)
+        }
         val current = VideoNegotiation(UUID.randomUUID().toString()).also { attempt = it }
         diagnosticAttempt = VideoDiagnostics.sender.begin(sharingSession)
         val config = PeerConnection.RTCConfiguration(emptyList()).apply {
@@ -123,6 +144,7 @@ internal class NativeVideoSender(
                     PeerConnection.IceConnectionState.DISCONNECTED)) failed("media_connection_lost") }
             }
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
+                if (state == PeerConnection.PeerConnectionState.CONNECTED) ticket.connected()
                 post { if (owns(current) && state == PeerConnection.PeerConnectionState.CONNECTED) {
                     VideoDiagnostics.record(VideoDiagnostics.Event.MEDIA_CONNECTED)
                     VideoState.status = "connected_waiting_frames"
@@ -145,7 +167,7 @@ internal class NativeVideoSender(
             override fun onDataChannel(channel: DataChannel) { channel.close() }
             override fun onRenegotiationNeeded() = Unit
         }) ?: error("peer_unavailable")
-        peer = connection
+        peer = resources.own(connection) { try { it.close() } finally { it.dispose() } }
         connection.setAudioPlayout(false); connection.setAudioRecording(false)
         val transceiver = connection.addTransceiver(track!!,
             RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY))
@@ -215,7 +237,7 @@ internal class NativeVideoSender(
             owns = { owns(current) }, failed = { failed("control_unavailable") })
         link.send(JSONObject(raw), completion::complete)
     }
-    private fun owns(value: VideoNegotiation) = !closed && active() && capture?.owns(peerCaptureEpoch) == true && link.viewerReady && attempt === value && !value.closed && VideoControlBridge.link === link
+    private fun owns(value: VideoNegotiation) = !closed && active() && capture?.owns(peerCaptureEpoch) == true && link.ownsViewer(peerViewerEpoch) && attempt === value && !value.closed && VideoControlBridge.link === link
     private fun sdpObserver(current: VideoNegotiation, created: (SessionDescription) -> Unit = {}, applied: () -> Unit = {}) =
         object : SdpObserver {
             override fun onCreateSuccess(description: SessionDescription) { post { if (owns(current)) runGuarded(current) { created(description) } } }
@@ -228,7 +250,7 @@ internal class NativeVideoSender(
             VideoDiagnostics.exception(VideoDiagnostics.Event.NEGOTIATION_FAILED, error); failed("negotiation_failed")
         }
     } }
-    override val needsStats: Boolean get() = !closed && peer != null && link.viewerReady && capture?.owns(peerCaptureEpoch) == true
+    override val needsStats: Boolean get() = !closed && peer != null && link.ownsViewer(peerViewerEpoch) && capture?.owns(peerCaptureEpoch) == true
     override fun collectStats() {
         if (!needsStats || VideoControlBridge.link !== link) { viewerSession.reconcile(); return }
         frameWatchdog?.failure(System.nanoTime())?.let {
@@ -266,10 +288,18 @@ internal class NativeVideoSender(
             VideoState.metrics = "$label · ${width}×${height} · $fps fps · $kbps kbps · hardware encoder"
         } }
     }
+    private fun onTextureThread(action: () -> Unit) {
+        val texture = helper ?: return
+        ThreadUtils.invokeAtFrontUninterruptibly(texture.handler, Runnable(action))
+    }
     private fun disposePeer() {
+        // Revoke recovery first, drain texture forwarding, then release every per-peer native owner.
+        startup?.close(); startup = null
         VideoDiagnostics.sender.end(diagnosticAttempt); diagnosticAttempt = null
-        attempt?.let { it.close(); link.endNegotiation(it.id) }; attempt = null
-        peer?.let { runCatching { it.close() }; runCatching { it.dispose() } }; peer = null; peerCaptureEpoch = null
+        attempt?.let { it.close(); runCatching { link.endNegotiation(it.id) } }; attempt = null
+        peer = null; peerCaptureEpoch = null; peerViewerEpoch = null
+        peerResources?.close(); peerResources = null
+        track = null; source = null; factory = null
         statsPending = false; lastStatsUs = 0.0; lastBytes = 0L; frameWatchdog = null
     }
     override fun close() {
@@ -279,10 +309,7 @@ internal class NativeVideoSender(
         disposePeer()
         if (capture != null) runCatching { capture?.close() } else runCatching { projection?.stop() }
         capture = null; projection = null
-        runCatching { track?.dispose() }; track = null
-        runCatching { source?.dispose() }; source = null
         runCatching { helper?.dispose() }; helper = null
-        runCatching { factory?.dispose() }; factory = null
         runCatching { egl?.release() }; egl = null
     }
     companion object {

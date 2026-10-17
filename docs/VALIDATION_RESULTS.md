@@ -227,3 +227,19 @@ missing versus zero counters, keyframe relationships and closed-attempt original
 Capture lifecycle and encoded-frame supervision remain independent of these observational fields.
 Real Tbox/vehicle first-image diagnosis and decoding performance remain pending; these checks do
 not establish a successful image or hardware decoder use.
+
+
+## 0.9.5-dev bounded hardware startup recovery
+
+251 tests across 41 suites passed without failures, errors or skipped tests. Debug lint reported zero
+issues and debug assembly passed. The pinned WebRTC archive and protocol fixtures remain unchanged.
+The new tests exercise all public encoder/factory entry points, native KEY/EMPTY hints, connected-only
+finite scheduling, frame gaps and clock regressions, release/reinit/late old factory callbacks, actual
+VideoLink ready epochs, source loss before worker cleanup, relay handoff without frame retention and
+cleanup after each partial allocation/throwing teardown. Explicit forwarding preserves Java default
+method overrides, including rates, native-encoder handling and alignment metadata.
+
+The same projection/display/texture helper supplies per-attempt sources; no extra capture consent or
+periodic resync loop is introduced. JVM and static checks do not establish that Tbox hardware honors
+a sync request, that WebView decodes an image, or that the vehicle saves CPU/GPU. Those remain
+physical validation gates using the existing manual sender/receiver diagnostics.

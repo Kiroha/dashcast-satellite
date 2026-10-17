@@ -199,3 +199,21 @@ With a receiver advertising both diagnostics capabilities, the existing snapshot
 encoded/keyframe counts, bytes/packets and received PLI/NACK/FIR feedback. Older receivers receive
 the unchanged legacy snapshot. Missing fields remain unknown; historical encoding never confirms
 a decoded or displayed image. No extra polling, socket, codec fallback or capture session is added.
+
+
+### Bounded H.264 startup recovery
+
+DashSat can ask its existing hardware encoder for up to three extra startup keyframes near 2, 5 and
+9 seconds after the first connected event. The finite 12-second window, minimum spacing and
+per-attempt/encoder ownership prevent continuous sync requests or catchup bursts. Empty/drop hints
+and native keyframe requests keep their original arguments. No new timer, stats request, codec AAR,
+profile, permission, consent or wire message is required. Other codecs retain their ordinary path.
+
+The per-viewer native factory/source/track are released after synchronous texture-thread unbinding.
+The same Android-authorized MediaProjection/VirtualDisplay/EGL helper supplies replacement sources.
+Source visibility and viewer epochs fence old callbacks immediately, including false-true transitions
+before worker cleanup drains. Keyframe requests never refresh encoded-frame or receiver-image liveness.
+
+Use **Send video diagnostics to DashCast** after an attempt and report the actual `keyFramesEncoded`
+plus receiver decoded-frame observations. The hardware may decline a request; successful encoding or
+extra keyframes do not establish decoder compatibility, a displayed image or CPU/GPU savings.

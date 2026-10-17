@@ -43,7 +43,7 @@ class VideoCaptureService : Service(), VideoControlBridge.Listener {
     }
     internal var createEngine: (Context, VideoLink, (() -> Unit) -> Unit, (String) -> Unit, () -> Unit) -> VideoCaptureEngine =
         { context, link, post, failed, changed -> NativeVideoSender(context, link, post, failed,
-            active = { !ending && canCapture() }, stateChanged = changed) }
+            active = { !ending && canCapture() }, stateChanged = changed, recoveryActive = { !ending }) }
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() { finishCapture("capture_revoked") }
     }
